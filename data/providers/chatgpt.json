@@ -1,0 +1,10 @@
+{
+  "name": "chatgpt",
+  "display_name": "ChatGPT",
+  "url": "https://chatgpt.com/",
+  "mode": "dom",
+  "input_selector": "textarea, [contenteditable='true'], #prompt-textarea",
+  "send_button_selector": "button[data-testid='send-button'], button[aria-label*='Send']",
+  "response_selector": "[data-message-author-role='assistant'], .markdown",
+  "stream_url_pattern": "/backend-api/conversation"
+}

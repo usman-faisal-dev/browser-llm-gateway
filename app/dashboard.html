@@ -1,0 +1,1444 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Browser LLM Gateway</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0a0e14;
+      --panel: #111823;
+      --panel-2: #172130;
+      --line: #253244;
+      --text: #eef3f8;
+      --muted: #8fa0b3;
+      --accent: #f0883e;
+      --accent-2: #ffad6b;
+      --danger: #ff6b6b;
+      --ok: #59d890;
+      --warn: #f3c969;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 272px 1fr;
+    }
+
+    aside {
+      border-right: 1px solid var(--line);
+      background: #0d131c;
+      padding: 22px 18px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 18px;
+      margin-bottom: 28px;
+    }
+
+    .mark {
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      background: var(--accent);
+      box-shadow: 0 0 24px rgba(240, 136, 62, 0.28);
+    }
+
+    nav {
+      display: grid;
+      gap: 6px;
+    }
+
+    .nav-button {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 40px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      padding: 9px 10px;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+      text-align: left;
+      font: inherit;
+    }
+
+    .nav-button.active, .nav-button:hover {
+      color: var(--text);
+      background: var(--panel);
+      border-color: var(--line);
+    }
+
+    main {
+      padding: 28px;
+      overflow: auto;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 22px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 24px;
+      letter-spacing: 0;
+    }
+
+    .subtle {
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    button, input, select, textarea {
+      font: inherit;
+    }
+
+    .primary, .ghost {
+      min-height: 38px;
+      border-radius: 7px;
+      padding: 8px 12px;
+      cursor: pointer;
+      border: 1px solid var(--line);
+    }
+
+    .primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #111;
+      font-weight: 700;
+    }
+
+    .primary:hover { background: var(--accent-2); }
+
+    .ghost {
+      background: var(--panel);
+      color: var(--text);
+    }
+
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+      gap: 14px;
+    }
+
+    .card, .form-panel, .settings-panel, .help-panel, .chat-panel {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+    }
+
+    .card {
+      padding: 16px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .card.disabled {
+      opacity: 0.48;
+      background: #0d131c;
+    }
+
+    .card-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    .provider-name {
+      font-size: 16px;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+
+    .url {
+      color: var(--muted);
+      font-size: 12px;
+      overflow-wrap: anywhere;
+      margin-top: 3px;
+    }
+
+    .badge {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .badge.connected { color: var(--ok); border-color: rgba(89, 216, 144, 0.45); }
+    .badge.busy { color: var(--warn); border-color: rgba(243, 201, 105, 0.45); }
+    .badge.error { color: var(--danger); border-color: rgba(255, 107, 107, 0.45); }
+
+    .status-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .switch {
+      position: relative;
+      display: inline-flex;
+      width: 42px;
+      height: 24px;
+      flex: 0 0 auto;
+    }
+
+    .switch input {
+      position: absolute;
+      opacity: 0;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: 0;
+    }
+
+    .slider {
+      width: 100%;
+      height: 100%;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #0c121a;
+      cursor: pointer;
+      transition: background 140ms ease, border-color 140ms ease;
+    }
+
+    .slider::before {
+      content: "";
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--muted);
+      transition: transform 140ms ease, background 140ms ease;
+    }
+
+    .switch input:checked + .slider {
+      background: rgba(89, 216, 144, 0.18);
+      border-color: rgba(89, 216, 144, 0.55);
+    }
+
+    .switch input:checked + .slider::before {
+      transform: translateX(18px);
+      background: var(--ok);
+    }
+
+    .switch input:focus-visible + .slider {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .danger {
+      min-height: 38px;
+      border-radius: 7px;
+      padding: 8px 12px;
+      cursor: pointer;
+      border: 1px solid rgba(255, 107, 107, 0.42);
+      background: rgba(255, 107, 107, 0.08);
+      color: var(--danger);
+    }
+
+    .danger:hover {
+      background: rgba(255, 107, 107, 0.14);
+    }
+
+    .card-actions {
+      display: grid;
+      gap: 8px;
+    }
+
+    .session-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .card-actions .danger {
+      width: 100%;
+      min-height: 32px;
+      padding: 6px 10px;
+      text-align: center;
+      background: transparent;
+    }
+
+    .meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .meta span {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+      overflow-wrap: anywhere;
+    }
+
+    .view { display: none; }
+    .view.active { display: block; }
+
+    .form-panel, .settings-panel, .help-panel {
+      padding: 18px;
+    }
+
+    .chat-panel {
+      height: calc(100vh - 154px);
+      min-height: 520px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      overflow: hidden;
+    }
+
+    .chat-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px;
+      border-bottom: 1px solid var(--line);
+      background: #0d131c;
+    }
+
+    .chat-toolbar label {
+      min-width: min(360px, 100%);
+    }
+
+    .chat-status {
+      color: var(--muted);
+      font-size: 12px;
+      min-height: 18px;
+      text-align: right;
+    }
+
+    .chat-history {
+      min-height: 0;
+      overflow-y: auto;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      background: #0a0e14;
+    }
+
+    .chat-empty {
+      margin: auto;
+      color: var(--muted);
+      text-align: center;
+      max-width: 360px;
+    }
+
+    .chat-row {
+      display: flex;
+      width: 100%;
+    }
+
+    .chat-row.user {
+      justify-content: flex-end;
+    }
+
+    .chat-row.assistant {
+      justify-content: flex-start;
+    }
+
+    .chat-bubble {
+      max-width: min(760px, 78%);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      background: var(--panel-2);
+    }
+
+    .chat-row.user .chat-bubble {
+      background: rgba(240, 136, 62, 0.14);
+      border-color: rgba(240, 136, 62, 0.42);
+      color: var(--text);
+    }
+
+    .chat-row.assistant .chat-bubble {
+      background: var(--panel);
+    }
+
+    .chat-composer {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      padding: 14px;
+      border-top: 1px solid var(--line);
+      background: #0d131c;
+    }
+
+    .chat-actions {
+      display: flex;
+      gap: 8px;
+      align-items: stretch;
+    }
+
+    .help-panel {
+      display: grid;
+      gap: 18px;
+    }
+
+    .help-section {
+      display: grid;
+      gap: 8px;
+    }
+
+    .help-section h2 {
+      margin: 0;
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+
+    .help-section h3 {
+      margin: 6px 0 0;
+      font-size: 14px;
+      letter-spacing: 0;
+    }
+
+    .help-section p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .help-section ol,
+    .help-section ul {
+      margin: 0;
+      padding-left: 20px;
+      color: var(--muted);
+    }
+
+    .help-section strong {
+      color: var(--text);
+    }
+
+    .help-section table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      overflow: hidden;
+    }
+
+    .help-section th,
+    .help-section td {
+      border-bottom: 1px solid var(--line);
+      padding: 9px 10px;
+      text-align: left;
+      color: var(--muted);
+      vertical-align: top;
+    }
+
+    .help-section th {
+      background: var(--panel-2);
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .help-section tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .help-section code,
+    .help-section pre {
+      border: 1px solid var(--line);
+      background: #0c121a;
+      border-radius: 7px;
+    }
+
+    .help-section code {
+      padding: 2px 5px;
+      color: var(--text);
+    }
+
+    .help-section pre {
+      margin: 0;
+      padding: 12px;
+      color: var(--text);
+      overflow-x: auto;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .help-section pre code {
+      border: 0;
+      background: transparent;
+      padding: 0;
+    }
+
+    form {
+      display: grid;
+      gap: 12px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      min-height: 38px;
+      border-radius: 7px;
+      border: 1px solid var(--line);
+      background: #0c121a;
+      color: var(--text);
+      padding: 8px 10px;
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 44px;
+      max-height: 160px;
+    }
+
+    .settings-panel {
+      max-width: 100%;
+      display: grid;
+      gap: 18px;
+    }
+
+    .settings-section {
+      display: grid;
+      gap: 12px;
+    }
+
+    .settings-section h2 {
+      margin: 0;
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    .checkbox-row input {
+      width: 16px;
+      min-height: 16px;
+      flex: 0 0 auto;
+    }
+
+    .note {
+      border: 1px solid rgba(243, 201, 105, 0.35);
+      border-radius: 7px;
+      background: rgba(243, 201, 105, 0.08);
+      color: var(--muted);
+      padding: 10px 12px;
+      margin: 0;
+    }
+
+    .two {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .error-text {
+      color: var(--danger);
+      font-size: 12px;
+      min-height: 18px;
+    }
+
+    .toast {
+      position: fixed;
+      top: 18px;
+      right: 18px;
+      z-index: 20;
+      padding: 10px 14px;
+      border-radius: 7px;
+      background: #1f9d55;
+      color: #fff;
+      font-weight: 700;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.32);
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-8px);
+      transition: opacity 240ms ease, transform 240ms ease;
+    }
+
+    .toast.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .toast.fade-out {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+
+    .vnc-panel {
+      display: none;
+      border: 1px solid var(--line);
+      background: #070a0f;
+      border-radius: 8px;
+      margin-bottom: 18px;
+      overflow: hidden;
+    }
+
+    .vnc-panel.active {
+      display: block;
+    }
+
+    .vnc-head {
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      background: #0d131c;
+    }
+
+    .vnc-title {
+      font-weight: 700;
+    }
+
+    .vnc-frame-wrap {
+      height: min(68vh, 720px);
+      min-height: 360px;
+      background: #000;
+    }
+
+    .vnc-frame {
+      width: 100%;
+      height: 100%;
+      display: block;
+      border: 0;
+      background: #000;
+    }
+
+    @media (max-width: 760px) {
+      .shell { grid-template-columns: 1fr; }
+      aside { border-right: 0; border-bottom: 1px solid var(--line); }
+      main { padding: 18px; }
+      .topbar { align-items: flex-start; flex-direction: column; }
+      .topbar-actions { width: 100%; }
+      .topbar-actions button { flex: 1; }
+      .two { grid-template-columns: 1fr; }
+      .chat-panel { height: calc(100vh - 220px); min-height: 460px; }
+      .chat-toolbar { align-items: stretch; flex-direction: column; }
+      .chat-status { text-align: left; }
+      .chat-bubble { max-width: 92%; }
+      .chat-composer { grid-template-columns: 1fr; }
+      .chat-actions button { flex: 1; }
+      .vnc-frame-wrap { height: 54vh; min-height: 300px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <div class="brand"><span class="mark"></span><span>Browser LLM Gateway</span></div>
+      <nav>
+        <button class="nav-button active" data-view-button="providers">Providers</button>
+        <button class="nav-button" data-view-button="chat">Chat</button>
+        <button class="nav-button" data-view-button="add">Add Provider</button>
+        <button class="nav-button" data-view-button="settings">Settings</button>
+        <button class="nav-button" data-view-button="help">Help</button>
+      </nav>
+    </aside>
+    <main>
+      <section class="view active" data-view="providers">
+        <div class="topbar">
+          <div>
+            <h1>Providers</h1>
+            <div class="subtle">Open a session once per provider, then use the local OpenAI-compatible endpoint.</div>
+          </div>
+          <div class="topbar-actions">
+            <button class="ghost" id="toggleVnc" type="button" aria-expanded="false">Show Browser</button>
+            <button class="ghost" id="refresh" type="button">Refresh</button>
+          </div>
+        </div>
+        <div class="vnc-panel" id="vncPanel" aria-hidden="true">
+          <div class="vnc-head">
+            <div>
+              <div class="vnc-title">Playwright Browser</div>
+              <div class="subtle">DISPLAY=:99 via x11vnc</div>
+            </div>
+            <button class="ghost" id="reloadVnc" type="button">Reload</button>
+          </div>
+          <div class="vnc-frame-wrap">
+            <iframe class="vnc-frame" id="vncFrame" title="Playwright browser"></iframe>
+          </div>
+        </div>
+        <div class="grid" id="providerGrid"></div>
+      </section>
+
+      <section class="view" data-view="chat">
+        <div class="topbar">
+          <div>
+            <h1>Chat</h1>
+            <div class="subtle">Send multi-turn messages through any enabled provider.</div>
+          </div>
+          <div class="topbar-actions">
+            <button class="ghost" id="clearChat" type="button">Clear</button>
+          </div>
+        </div>
+        <div class="chat-panel">
+          <div class="chat-toolbar">
+            <label>Provider
+              <select id="chatProvider"></select>
+            </label>
+            <div class="chat-status" id="chatStatus"></div>
+          </div>
+          <div class="chat-history" id="chatHistory" aria-live="polite"></div>
+          <form class="chat-composer" id="chatForm">
+            <textarea id="chatInput" rows="2" placeholder="Message the selected provider"></textarea>
+            <div class="chat-actions">
+              <button class="primary" id="chatSend" type="submit">Send</button>
+              <button class="ghost" id="chatStop" type="button" disabled>Stop</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <section class="view" data-view="add">
+        <div class="topbar">
+          <div>
+            <h1>Add Provider</h1>
+            <div class="subtle">Create a DOM-mode provider config in data/providers.</div>
+          </div>
+        </div>
+        <div class="form-panel">
+          <form id="providerForm">
+            <div class="two">
+              <label>Name<input name="name" placeholder="perplexity" required pattern="[a-zA-Z0-9_-]+"></label>
+              <label>Display Name<input name="display_name" placeholder="Perplexity" required></label>
+            </div>
+            <label>URL<input name="url" placeholder="https://example.com/chat" required></label>
+            <label>Input Selector<input name="input_selector" placeholder="textarea, [contenteditable='true']" required></label>
+            <label>Send Button Selector<input name="send_button_selector" placeholder="button[type='submit']"></label>
+            <label>Response Selector<input name="response_selector" placeholder=".markdown, [data-message-author-role='assistant']" required></label>
+            <label>Response Text Selector<input name="response_text_selector" placeholder=".markdown"></label>
+            <label>Network Stream URL Pattern<input name="stream_url_pattern" placeholder="/api/chat"></label>
+            <div class="error-text" id="formError"></div>
+            <button class="primary" type="submit">Add Provider</button>
+          </form>
+        </div>
+      </section>
+
+      <section class="view" data-view="settings">
+        <div class="topbar">
+          <div>
+            <h1>Settings</h1>
+            <div class="subtle">Runtime values read from environment and local defaults.</div>
+          </div>
+        </div>
+        <div class="settings-panel" id="settingsPanel"></div>
+      </section>
+
+      <section class="view" data-view="help">
+        <div class="topbar">
+          <div>
+            <h1>API Usage</h1>
+            <div class="subtle">Use Browser LLM Gateway with OpenAI-compatible clients.</div>
+          </div>
+        </div>
+        <div class="help-panel">
+          <section class="help-section">
+            <h2>Endpoint</h2>
+            <p><code>POST http://AGDEV_IP:9920/v1/chat/completions</code></p>
+          </section>
+
+          <section class="help-section">
+            <h2>Provider Selection</h2>
+            <p>Set the <code>model</code> field to one of: <code>chatgpt</code>, <code>claude</code>, <code>gemini</code>, <code>deepseek</code>.</p>
+            <p>Each provider must be logged in via the dashboard first.</p>
+          </section>
+
+          <section class="help-section">
+            <h2>Example: curl</h2>
+            <pre><code>curl -X POST http://AGDEV_IP:9920/v1/chat/completions -H "Content-Type: application/json" -d '{model:chatgpt,messages:[{role:user,content:Hello}],stream:false}'</code></pre>
+          </section>
+
+          <section class="help-section">
+            <h2>Example: streaming</h2>
+            <pre><code>curl -X POST http://AGDEV_IP:9920/v1/chat/completions -H "Content-Type: application/json" -d '{model:chatgpt,messages:[{role:user,content:Hello}],stream:true}'</code></pre>
+          </section>
+
+          <section class="help-section">
+            <h2>OpenAI-compatible</h2>
+            <p>This API uses the same format as OpenAI. Use it with any tool that supports OpenAI API by setting the base URL to <code>http://AGDEV_IP:9920/v1</code>.</p>
+          </section>
+
+          <section class="help-section">
+            <h2>Models endpoint</h2>
+            <p><code>GET http://AGDEV_IP:9920/v1/models</code> returns list of connected providers.</p>
+          </section>
+
+          <section class="help-section">
+            <h2>Adding a Custom Provider</h2>
+            <p>To add a new provider, you need three CSS selectors:</p>
+            <ol>
+              <li><strong>Input selector</strong> - targets the chat input field</li>
+              <li><strong>Send button selector</strong> - targets the send button</li>
+              <li><strong>Response selector</strong> - targets the assistant response text</li>
+            </ol>
+
+            <h3>How to find selectors using Chrome DevTools</h3>
+            <ol>
+              <li>Open the provider website in Chrome</li>
+              <li>Right-click the chat input field &rarr; Inspect</li>
+              <li>Look for a unique attribute like placeholder, id, or class</li>
+              <li>Right-click the send button &rarr; Inspect</li>
+              <li>Look for aria-label, type="submit", or a unique class</li>
+              <li>Right-click a response message &rarr; Inspect</li>
+              <li>Look for a container that wraps the response text</li>
+            </ol>
+
+            <h3>Example selectors</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Element</th>
+                  <th>Example Selector</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Input</td>
+                  <td><code>textarea[placeholder="Type a message..."]</code></td>
+                </tr>
+                <tr>
+                  <td>Input</td>
+                  <td><code>div[contenteditable="true"]:not(.ql-clipboard)</code></td>
+                </tr>
+                <tr>
+                  <td>Send</td>
+                  <td><code>button[type="submit"]</code></td>
+                </tr>
+                <tr>
+                  <td>Send</td>
+                  <td><code>button[aria-label*="Send"]</code></td>
+                </tr>
+                <tr>
+                  <td>Response</td>
+                  <td><code>.message-content .text</code></td>
+                </tr>
+                <tr>
+                  <td>Response</td>
+                  <td><code>.prose p</code></td>
+                </tr>
+              </tbody>
+            </table>
+
+            <h3>Tips</h3>
+            <ul>
+              <li>Use unique attributes (placeholder, aria-label, data-testid) for better reliability</li>
+              <li>Avoid classes with random suffixes (they change on each deploy)</li>
+              <li>Test your selector in the browser console: <code>document.querySelector("your-selector")</code></li>
+            </ul>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div class="toast" id="settingsToast" role="status" aria-live="polite">Settings saved</div>
+
+  <script>
+    const grid = document.querySelector("#providerGrid");
+    const settingsPanel = document.querySelector("#settingsPanel");
+    const form = document.querySelector("#providerForm");
+    const formError = document.querySelector("#formError");
+    const toggleVnc = document.querySelector("#toggleVnc");
+    const reloadVnc = document.querySelector("#reloadVnc");
+    const vncPanel = document.querySelector("#vncPanel");
+    const vncFrame = document.querySelector("#vncFrame");
+    const chatProvider = document.querySelector("#chatProvider");
+    const chatHistoryEl = document.querySelector("#chatHistory");
+    const chatForm = document.querySelector("#chatForm");
+    const chatInput = document.querySelector("#chatInput");
+    const chatSend = document.querySelector("#chatSend");
+    const chatStop = document.querySelector("#chatStop");
+    const chatStatus = document.querySelector("#chatStatus");
+    const clearChat = document.querySelector("#clearChat");
+    const settingsToast = document.querySelector("#settingsToast");
+    const vncUrl = `/novnc/vnc_lite.html?host=${encodeURIComponent(window.location.hostname || "127.0.0.1")}&port=6080&path=websockify&scale=true`;
+    let browserSettings = null;
+    let browserOptions = {timezones: [], user_agents: [], user_agent_platforms: {}};
+    let runtimeSettings = null;
+    let providers = [];
+    let chatMessages = [];
+    let chatInFlight = false;
+    let chatAbortController = null;
+    let chatAbortReason = "";
+    let settingsToastTimer = null;
+    const CHAT_REQUEST_TIMEOUT_MS = 120000;
+
+    function showToast(message, durationMs = 3000) {
+      window.clearTimeout(settingsToastTimer);
+      settingsToast.textContent = message;
+      settingsToast.classList.remove("fade-out");
+      settingsToast.classList.add("visible");
+      settingsToastTimer = window.setTimeout(() => {
+        settingsToast.classList.add("fade-out");
+        settingsToast.classList.remove("visible");
+      }, durationMs);
+    }
+
+    function showSettingsToast() {
+      showToast("Settings saved");
+    }
+
+    function switchView(viewName) {
+      document.querySelectorAll("[data-view-button]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.viewButton === viewName);
+      });
+      document.querySelectorAll("[data-view]").forEach((view) => {
+        view.classList.toggle("active", view.dataset.view === viewName);
+      });
+    }
+
+    document.querySelectorAll("[data-view-button]").forEach((button) => {
+      button.addEventListener("click", () => switchView(button.dataset.viewButton));
+    });
+
+    document.querySelector("#refresh").addEventListener("click", loadProviders);
+    function showVncPanel() {
+      switchView("providers");
+      vncPanel.classList.add("active");
+      vncPanel.setAttribute("aria-hidden", "false");
+      toggleVnc.setAttribute("aria-expanded", "true");
+      toggleVnc.textContent = "Hide Browser";
+      if (!vncFrame.getAttribute("src")) {
+        vncFrame.src = vncUrl;
+      }
+    }
+
+    toggleVnc.addEventListener("click", () => {
+      const isOpen = vncPanel.classList.toggle("active");
+      vncPanel.setAttribute("aria-hidden", String(!isOpen));
+      toggleVnc.setAttribute("aria-expanded", String(isOpen));
+      toggleVnc.textContent = isOpen ? "Hide Browser" : "Show Browser";
+      if (isOpen && !vncFrame.getAttribute("src")) {
+        vncFrame.src = vncUrl;
+      }
+    });
+    reloadVnc.addEventListener("click", () => {
+      vncFrame.src = vncUrl;
+    });
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      formError.textContent = "";
+      const data = Object.fromEntries(new FormData(form).entries());
+      Object.keys(data).forEach((key) => {
+        if (data[key] === "") delete data[key];
+      });
+      const response = await fetch("/api/providers", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) {
+        formError.textContent = await response.text();
+        return;
+      }
+      form.reset();
+      await loadProviders();
+      switchView("providers");
+    });
+
+    async function login(name) {
+      const response = await fetch(`/api/providers/${encodeURIComponent(name)}/login`, {method: "POST"});
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      await loadProviders();
+      showVncPanel();
+    }
+
+    async function loadProviders() {
+      const response = await fetch("/api/providers");
+      const payload = await response.json();
+      providers = payload.providers || [];
+      grid.innerHTML = payload.providers.map((provider) => card(provider)).join("");
+      runtimeSettings = payload.settings;
+      updateChatProviders();
+      await loadBrowserSettings();
+      renderSettings(runtimeSettings);
+      document.querySelectorAll("[data-login]").forEach((button) => {
+        button.addEventListener("click", () => login(button.dataset.login));
+      });
+      document.querySelectorAll("[data-save]").forEach((button) => {
+        button.addEventListener("click", () => saveSession(button.dataset.save));
+      });
+      document.querySelectorAll("[data-toggle]").forEach((input) => {
+        input.addEventListener("change", () => toggleProvider(input.dataset.toggle));
+      });
+      document.querySelectorAll("[data-delete]").forEach((button) => {
+        button.addEventListener("click", () => deleteProvider(button.dataset.delete));
+      });
+    }
+
+    async function loadBrowserSettings() {
+      const response = await fetch("/api/settings/browser");
+      const payload = await response.json();
+      browserSettings = payload.settings;
+      browserOptions = payload.options || browserOptions;
+    }
+
+    function renderSettings(runtimeSettings) {
+      const settings = browserSettings || {};
+      settingsPanel.innerHTML = `
+        <section class="settings-section">
+          <h2>Runtime</h2>
+          <div class="meta">
+            <span>Port<br><strong>${escapeHtml(runtimeSettings.port)}</strong></span>
+            <span>Default model<br><strong>${escapeHtml(runtimeSettings.default_model)}</strong></span>
+          </div>
+        </section>
+        <section class="settings-section">
+          <h2>Browser Fingerprint</h2>
+          <p class="note">These browser fingerprint settings help provider sessions look like normal user browsers and can help bypass CAPTCHAs.</p>
+          <form id="browserSettingsForm">
+            <label>User Agent
+              <select name="user_agent_preset" id="userAgentPreset" required>
+                ${userAgentOptions(settings.user_agent || "")}
+              </select>
+            </label>
+            <div class="two" id="customBrowserFields">
+              <label id="customUserAgentRow">Custom User Agent
+                <input name="custom_user_agent" value="${escapeAttribute(settings.user_agent || "")}" required>
+              </label>
+              <label id="customPlatformRow">Custom Platform
+                <input name="custom_platform" value="${escapeAttribute(settings.platform || "Win32")}" required>
+              </label>
+            </div>
+            <label class="checkbox-row"><input name="disable_webdriver" type="checkbox" ${settings.disable_webdriver ? "checked" : ""}> Disable webdriver flag</label>
+            <div class="two">
+              <label>Locale<input name="locale" value="${escapeAttribute(settings.locale || "en-US")}" required></label>
+              <label>Platform
+                <select name="platform_preset" id="platformPreset" required>
+                  ${platformOptions(settings.platform || "Win32")}
+                </select>
+              </label>
+            </div>
+            <label>Timezone
+              <select name="timezone" required>
+                ${timezoneOptions(settings.timezone || "America/New_York")}
+              </select>
+            </label>
+            <div class="error-text" id="browserSettingsError"></div>
+            <button class="primary" type="submit">Save Browser Fingerprint</button>
+          </form>
+        </section>
+      `;
+      const browserSettingsForm = document.querySelector("#browserSettingsForm");
+      const userAgentPreset = browserSettingsForm.elements.user_agent_preset;
+      const platformPreset = browserSettingsForm.elements.platform_preset;
+      userAgentPreset.addEventListener("change", handleUserAgentPresetChange);
+      platformPreset.addEventListener("change", updateCustomPlatformVisibility);
+      updateCustomUserAgentVisibility({currentTarget: userAgentPreset});
+      updateCustomPlatformVisibility({currentTarget: platformPreset});
+      browserSettingsForm.addEventListener("submit", saveBrowserSettings);
+    }
+
+    async function saveBrowserSettings(event) {
+      event.preventDefault();
+      const error = document.querySelector("#browserSettingsError");
+      const button = event.currentTarget.querySelector("button[type='submit']");
+      const originalText = button.textContent;
+      error.textContent = "";
+      button.textContent = "Saving...";
+      button.disabled = true;
+      const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+      const presetOption = event.currentTarget.elements.user_agent_preset.selectedOptions[0];
+      const userAgent = data.user_agent_preset === "Custom"
+        ? data.custom_user_agent
+        : presetOption.dataset.userAgent;
+      const platform = data.user_agent_preset === "Custom" || data.platform_preset === "Custom"
+        ? (data.custom_platform || browserSettings.platform)
+        : data.platform_preset;
+      const payload = {
+        ...browserSettings,
+        user_agent: userAgent,
+        disable_webdriver: event.currentTarget.elements.disable_webdriver.checked,
+        locale: data.locale,
+        timezone: data.timezone,
+        platform,
+      };
+      try {
+        const response = await fetch("/api/settings/browser", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          error.textContent = await response.text();
+          return;
+        }
+        browserSettings = (await response.json()).settings;
+        showSettingsToast();
+      } finally {
+        button.textContent = originalText;
+        button.disabled = false;
+      }
+    }
+
+    async function saveSession(name) {
+      const response = await fetch(`/api/providers/${encodeURIComponent(name)}/session`, {method: "POST"});
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      showToast("Session saved", 2000);
+      await loadProviders();
+    }
+
+    async function toggleProvider(name) {
+      await fetch(`/api/providers/${encodeURIComponent(name)}/toggle`, {method: "POST"});
+      await loadProviders();
+    }
+
+    async function deleteProvider(name) {
+      await fetch(`/api/providers/${encodeURIComponent(name)}/delete`, {method: "POST"});
+      await loadProviders();
+    }
+
+    chatForm.addEventListener("submit", sendChatMessage);
+    chatStop.addEventListener("click", stopChatRequest);
+    clearChat.addEventListener("click", () => {
+      chatMessages = [];
+      renderChatHistory();
+      setChatStatus("");
+      chatInput.focus();
+    });
+    chatInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        chatForm.requestSubmit();
+      }
+    });
+
+    function updateChatProviders() {
+      const selected = chatProvider.value || (runtimeSettings && runtimeSettings.default_model) || "";
+      const enabledProviders = providers.filter((provider) => provider.enabled !== false);
+      if (!enabledProviders.length) {
+        chatProvider.innerHTML = '<option value="">No enabled providers</option>';
+        chatProvider.disabled = true;
+        chatSend.disabled = true;
+        setChatStatus("Enable a provider before chatting.");
+        return;
+      }
+      chatProvider.disabled = false;
+      chatSend.disabled = chatInFlight;
+      chatProvider.innerHTML = enabledProviders.map((provider) => {
+        const name = escapeAttribute(provider.name);
+        const label = `${provider.display_name} (${provider.name})`;
+        const status = provider.status ? ` - ${provider.status}` : "";
+        return `<option value="${name}">${escapeHtml(label + status)}</option>`;
+      }).join("");
+      const fallback = enabledProviders.find((provider) => provider.name === selected)
+        || enabledProviders.find((provider) => runtimeSettings && provider.name === runtimeSettings.default_model)
+        || enabledProviders[0];
+      chatProvider.value = fallback.name;
+      if (!chatStatus.textContent || chatStatus.textContent.startsWith("Enable a provider")) {
+        setChatStatus("");
+      }
+    }
+
+    function renderChatHistory() {
+      if (!chatMessages.length) {
+        chatHistoryEl.innerHTML = '<div class="chat-empty">Start a conversation with the selected provider.</div>';
+        return;
+      }
+      chatHistoryEl.innerHTML = chatMessages.map((message) => `
+        <div class="chat-row ${escapeAttribute(message.role)}">
+          <div class="chat-bubble">${escapeHtml(message.content || "")}</div>
+        </div>
+      `).join("");
+      scrollChatToBottom();
+    }
+
+    function updateAssistantBubble(index, content) {
+      chatMessages[index].content = content;
+      const rows = chatHistoryEl.querySelectorAll(".chat-row");
+      const row = rows[index];
+      if (!row) {
+        renderChatHistory();
+        return;
+      }
+      row.querySelector(".chat-bubble").textContent = content;
+      scrollChatToBottom();
+    }
+
+    async function sendChatMessage(event) {
+      event.preventDefault();
+      if (chatInFlight) return;
+      const content = chatInput.value.trim();
+      const model = chatProvider.value;
+      if (!content || !model) return;
+
+      chatMessages.push({role: "user", content});
+      const assistantIndex = chatMessages.push({role: "assistant", content: ""}) - 1;
+      chatInput.value = "";
+      renderChatHistory();
+      setChatBusy(true);
+      setChatStatus("Streaming response...");
+      chatAbortController = new AbortController();
+      chatAbortReason = "";
+      const timeoutId = window.setTimeout(() => {
+        chatAbortReason = "Request timed out.";
+        chatAbortController.abort();
+      }, CHAT_REQUEST_TIMEOUT_MS);
+
+      try {
+        const response = await fetch("/v1/chat/completions", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          signal: chatAbortController.signal,
+          body: JSON.stringify({
+            model,
+            stream: true,
+            messages: chatMessages.slice(0, assistantIndex),
+          }),
+        });
+        if (!response.ok || !response.body) {
+          throw new Error(await response.text());
+        }
+        await readChatStream(response, assistantIndex);
+        setChatStatus("");
+      } catch (error) {
+        const message = error.name === "AbortError"
+          ? (chatAbortReason || "Request stopped.")
+          : `Error: ${error.message || error}`;
+        updateAssistantBubble(assistantIndex, message);
+        setChatStatus(error.name === "AbortError" ? message : "Request failed.");
+      } finally {
+        window.clearTimeout(timeoutId);
+        chatAbortController = null;
+        chatAbortReason = "";
+        setChatBusy(false);
+        chatInput.focus();
+      }
+    }
+
+    async function readChatStream(response, assistantIndex) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let assistantText = "";
+      while (true) {
+        const {value, done} = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), {stream: !done});
+        const events = buffer.split(/\r?\n\r?\n/);
+        buffer = events.pop() || "";
+        for (const eventText of events) {
+          const result = handleChatSseEvent(eventText);
+          if (result.done) return;
+          if (result.error) throw new Error(result.error);
+          if (result.content) {
+            assistantText += result.content;
+            updateAssistantBubble(assistantIndex, assistantText);
+          }
+        }
+        if (done) break;
+      }
+    }
+
+    function handleChatSseEvent(eventText) {
+      const data = eventText
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trimStart())
+        .join("\n");
+      if (!data) return {};
+      if (data === "[DONE]") return {done: true};
+      const payload = JSON.parse(data);
+      if (payload.error) return {error: payload.error.message || "Streaming failed"};
+      return {content: payload.choices?.[0]?.delta?.content || ""};
+    }
+
+    function setChatBusy(isBusy) {
+      chatInFlight = isBusy;
+      chatProvider.disabled = !chatProvider.value;
+      chatInput.disabled = isBusy;
+      chatSend.disabled = isBusy || !chatProvider.value;
+      chatSend.textContent = isBusy ? "Sending..." : "Send";
+      chatStop.disabled = !isBusy;
+    }
+
+    function stopChatRequest() {
+      if (!chatAbortController) return;
+      chatAbortReason = "Request stopped.";
+      chatAbortController.abort();
+    }
+
+    function setChatStatus(message) {
+      chatStatus.textContent = message;
+    }
+
+    function scrollChatToBottom() {
+      chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
+    }
+
+    function card(provider) {
+      const status = provider.status || "disconnected";
+      const statusLabel = statusLabels[status] || status;
+      const error = provider.error ? `<div class="error-text">${escapeHtml(provider.error)}</div>` : "";
+      const enabled = provider.enabled !== false;
+      const providerName = escapeHtml(provider.name);
+      return `
+        <article class="card ${enabled ? "" : "disabled"}">
+          <div class="card-head">
+            <div>
+              <div class="provider-name">${escapeHtml(provider.display_name)}</div>
+              <div class="url">${escapeHtml(provider.url)}</div>
+            </div>
+            <div class="status-controls">
+              <span class="badge ${status}">${statusLabel}</span>
+              <label class="switch" title="${enabled ? "Disable provider" : "Enable provider"}">
+                <input type="checkbox" data-toggle="${providerName}" ${enabled ? "checked" : ""} aria-label="${enabled ? "Disable" : "Enable"} ${escapeHtml(provider.display_name)}">
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="meta">
+            <span>Model<br><strong>${providerName}</strong></span>
+            <span>Mode<br><strong>${escapeHtml(provider.mode)}</strong></span>
+          </div>
+          ${error}
+          <div class="card-actions">
+            <div class="session-actions">
+              <button class="primary" data-login="${providerName}" ${enabled ? "" : "disabled"}>Open Session</button>
+              <button class="ghost" data-save="${providerName}" ${enabled ? "" : "disabled"}>Save Session</button>
+            </div>
+            <button class="danger" data-delete="${providerName}">Delete</button>
+          </div>
+        </article>
+      `;
+    }
+
+    const statusLabels = {
+      connected: "Session Open",
+      disconnected: "Closed",
+      error: "Error",
+    };
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;",
+      }[char]));
+    }
+
+    function escapeAttribute(value) {
+      return escapeHtml(value);
+    }
+
+    function timezoneOptions(selected) {
+      return browserOptions.timezones
+        .map((zone) => `<option value="${escapeAttribute(zone)}" ${zone === selected ? "selected" : ""}>${escapeHtml(zone)}</option>`)
+        .join("");
+    }
+
+    function selectedUserAgentPreset(selected) {
+      const matchingPreset = browserOptions.user_agents.find(
+        (agent) => agent.label !== "Custom" && agent.value === selected
+      );
+      return matchingPreset ? matchingPreset.label : "Custom";
+    }
+
+    function updateCustomUserAgentVisibility(event) {
+      const isCustom = event.currentTarget.value === "Custom";
+      const customBrowserFields = document.querySelector("#customBrowserFields");
+      const customUserAgentRow = document.querySelector("#customUserAgentRow");
+      const customPlatformRow = document.querySelector("#customPlatformRow");
+      customBrowserFields.hidden = !isCustom;
+      customUserAgentRow.hidden = !isCustom;
+      customPlatformRow.hidden = !isCustom;
+      customUserAgentRow.querySelector("input").disabled = !isCustom;
+      customPlatformRow.querySelector("input").disabled = !isCustom;
+      if (isCustom) {
+        const platformPreset = document.querySelector("#platformPreset");
+        platformPreset.value = "Custom";
+      }
+    }
+
+    function updateCustomPlatformVisibility(event) {
+      const userAgentPreset = document.querySelector("#userAgentPreset");
+      const isCustom = userAgentPreset && userAgentPreset.value === "Custom";
+      const customPlatformRow = document.querySelector("#customPlatformRow");
+      customPlatformRow.hidden = !isCustom;
+      customPlatformRow.querySelector("input").disabled = !isCustom;
+    }
+
+    function handleUserAgentPresetChange(event) {
+      updateCustomUserAgentVisibility(event);
+      const platform = browserOptions.user_agent_platforms[event.currentTarget.value];
+      if (!platform) return;
+
+      const platformPreset = document.querySelector("#platformPreset");
+      platformPreset.value = platform;
+      updateCustomPlatformVisibility({currentTarget: platformPreset});
+    }
+
+    function platformOptions(selected) {
+      const platforms = ["Win32", "MacIntel", "Linux armv8l", "Linux x86_64"];
+      const selectedPreset = platforms.includes(selected) ? selected : "Custom";
+      return [...platforms, "Custom"]
+        .map((platform) => `<option value="${escapeAttribute(platform)}" ${platform === selectedPreset ? "selected" : ""}>${escapeHtml(platform)}</option>`)
+        .join("");
+    }
+
+    function userAgentOptions(selected) {
+      const selectedPreset = selectedUserAgentPreset(selected);
+      return browserOptions.user_agents
+        .map((agent) => {
+          const selectedAttribute = agent.label === selectedPreset ? "selected" : "";
+          return `<option value="${escapeAttribute(agent.label)}" data-user-agent="${escapeAttribute(agent.value)}" ${selectedAttribute}>${escapeHtml(agent.label)}</option>`;
+        })
+        .join("");
+    }
+
+    renderChatHistory();
+    loadProviders();
+  </script>
+</body>
+</html>

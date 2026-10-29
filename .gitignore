@@ -1,0 +1,23 @@
+# Environments & Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.bak
+*.bak*
+
+# OS & Logs
+.DS_Store
+*.log
+data/*.txt
+
+# Runtime data & Sessions
+data/sessions/
+data/sessions.old/
+data/browser/
+data/vnc/
+data/*.db
+data/browser_settings.json
+.env

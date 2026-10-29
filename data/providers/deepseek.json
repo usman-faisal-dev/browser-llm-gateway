@@ -1,0 +1,10 @@
+{
+  "name": "deepseek",
+  "display_name": "DeepSeek",
+  "url": "https://chat.deepseek.com/",
+  "enabled": false,
+  "mode": "dom",
+  "input_selector": "textarea, [contenteditable='true']",
+  "send_button_selector": "button[aria-label*='Send'], button[type='submit']",
+  "response_selector": ".ds-markdown, .markdown"
+}

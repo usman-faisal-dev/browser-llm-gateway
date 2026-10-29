@@ -1,0 +1,9 @@
+{
+  "name": "gemini",
+  "display_name": "Gemini",
+  "url": "https://gemini.google.com/app",
+  "mode": "dom",
+  "input_selector": "div[contenteditable='true']:not(.ql-clipboard)",
+  "send_button_selector": "button[aria-label*='Send'], button[aria-label*='Submit']",
+  "response_selector": "message-content, .model-response-text"
+}
