@@ -76,3 +76,9 @@ class ProviderCreateRequest(BaseModel):
     response_selector: str
     response_text_selector: str | None = None
     stream_url_pattern: str | None = None
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: HttpUrl) -> HttpUrl:
+        validate_public_http_url(str(value))
+        return value
