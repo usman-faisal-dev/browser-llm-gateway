@@ -219,7 +219,6 @@ async def chat_completions(request: ChatCompletionRequest):
             content = await engine.complete(model, retry)
             _debug_dump("last_reply.txt", content)
             text, calls = _extract_tool_calls(content, tools)
-        _chat_state[model] = sent_hashes
         if request.stream:
             return StreamingResponse(
                 _fake_stream(model, text, calls),
