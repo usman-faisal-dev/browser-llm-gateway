@@ -21,7 +21,7 @@ Client Application / Agent  ──>  OpenAI REST API  ──>  Browser LLM Gatew
   - DeepSeek
 - **Extensible via Selectors**: Add new web chat interfaces simply by adding a JSON selector config to `data/providers/`.
 - **Tool Calling Support**: Automatically serializes tool schemas and parses model outputs into OpenAI-style `tool_calls` for autonomous agents.
-- **Delta Prompting**: Stateful hash tracking minimizes prompt re-transmission in multi-turn conversations.
+- **Conversation Isolation**: Each API request starts a fresh provider chat using the caller-supplied transcript, preventing cross-client history leakage.
 - **Browser Stealth & Fingerprints**: Configurable user-agents, headers, timezones, and anti-detection scripts.
 - **Management Dashboard**: Built-in web UI (`http://127.0.0.1:9920/`) to view, configure, and manage provider sessions.
 
@@ -38,11 +38,22 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
-### 2. Run the Bridge
+### 2. Configure authentication and run the bridge
+
+Set a long, random API key before starting the server. All dashboard, management,
+and OpenAI-compatible API routes require this bearer token.
 
 ```bash
+export LLM_BRIDGE_API_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 uvicorn app.main:app --host 127.0.0.1 --port 9920
 ```
+
+The dashboard prompts for the key and keeps it in the current browser tab's
+session storage. API clients must send `Authorization: Bearer <key>`.
+The server refuses requests with HTTP 503 if no key is configured.
+
+VNC and noVNC listen on loopback only. For remote access, use an authenticated
+SSH tunnel or a trusted reverse proxy; do not expose ports 5900/6080 directly.
 
 > **Tip (Headless Mode):** To run Chromium in the background without visible windows:
 > ```bash
@@ -66,7 +77,7 @@ The local API is accessible at `http://127.0.0.1:9920`.
 ### List Models
 
 ```bash
-curl http://127.0.0.1:9920/v1/models
+curl http://127.0.0.1:9920/v1/models -H "Authorization: Bearer $LLM_BRIDGE_API_KEY"
 ```
 
 ### Chat Completion (Non-Streaming)
@@ -74,6 +85,7 @@ curl http://127.0.0.1:9920/v1/models
 ```bash
 curl http://127.0.0.1:9920/v1/chat/completions \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $LLM_BRIDGE_API_KEY" \
   -d '{
     "model": "chatgpt",
     "messages": [

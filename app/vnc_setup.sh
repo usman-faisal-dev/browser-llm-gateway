@@ -22,7 +22,7 @@ if ! is_running "Xvfb ${DISPLAY_ID}"; then
   if [ -e "/tmp/.X${display_number}-lock" ] && [ ! -S "/tmp/.X11-unix/X${display_number}" ]; then
     rm -f "/tmp/.X${display_number}-lock"
   fi
-  setsid nohup Xvfb "${DISPLAY_ID}" -screen 0 "${SCREEN_SPEC}" -ac +extension RANDR \
+  setsid nohup Xvfb "${DISPLAY_ID}" -screen 0 "${SCREEN_SPEC}" -nolisten tcp +extension RANDR \
     >"${LOG_DIR}/xvfb.log" 2>&1 &
   echo "$!" >"${LOG_DIR}/xvfb.pid"
 fi
@@ -41,12 +41,12 @@ fi
 
 if ! is_running "x11vnc .*${DISPLAY_ID}.*-rfbport ${VNC_PORT}"; then
   setsid nohup x11vnc -display "${DISPLAY_ID}" -rfbport "${VNC_PORT}" -forever -shared -nopw \
-    -xkb -noxdamage -repeat -listen 0.0.0.0 \
+    -xkb -noxdamage -repeat -localhost -listen 127.0.0.1 \
     >"${LOG_DIR}/x11vnc.log" 2>&1 &
   echo "$!" >"${LOG_DIR}/x11vnc.pid"
 fi
 
 if ! is_running "websockify .*${NOVNC_PORT} .*localhost:${VNC_PORT}"; then
   websockify -D --web "${NOVNC_DIR}" --log-file "${LOG_DIR}/websockify.log" \
-    "0.0.0.0:${NOVNC_PORT}" "localhost:${VNC_PORT}"
+    "127.0.0.1:${NOVNC_PORT}" "127.0.0.1:${VNC_PORT}"
 fi

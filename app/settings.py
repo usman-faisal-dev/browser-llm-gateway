@@ -126,6 +126,7 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 9920
     default_model: str = "chatgpt"
+    api_key: str = ""
     headless: bool = False
     response_idle_seconds: float = 1.5
     response_timeout_seconds: float = 180.0
