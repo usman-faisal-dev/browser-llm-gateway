@@ -8,10 +8,11 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from playwright.async_api import BrowserContext, Error, Page, Playwright, async_playwright
+from playwright.async_api import BrowserContext, Error, Page, Playwright, Request, Route, async_playwright
 
 from app.models import ProviderConfig, ProviderMode, ProviderRuntime, ProviderStatus
 from app.provider_store import ProviderStore
+from app.url_security import validate_public_http_url_async
 from app.settings import (
     BROWSER_DIR,
     DEFAULT_USER_AGENT,
@@ -325,9 +326,9 @@ class BrowserEngine:
             extra_http_headers=browser_settings.extra_headers,
             locale=browser_settings.locale,
             timezone_id=browser_settings.timezone,
+            service_workers="block",
             args=[
                 "--window-size=1920,1080",
-                "--no-sandbox",
                 "--disable-blink-features=AutomationControlled",
                 "--disable-component-update",
                 "--disable-sync",
@@ -338,6 +339,9 @@ class BrowserEngine:
                 "--window-position=0,0",
             ],
         )
+        # Intercept browser HTTP(S) requests, including redirects and subresources.
+        # Blocking service workers prevents them from bypassing context routing.
+        await context.route("**/*", self._guard_browser_request)
         page = context.pages[0] if context.pages else await context.new_page()
         if init_script:
             await context.add_init_script(init_script)
@@ -442,6 +446,14 @@ class BrowserEngine:
         except Error as exc:
             if not self._is_closed_error(exc):
                 raise
+
+    async def _guard_browser_request(self, route: Route, request: Request) -> None:
+        try:
+            await validate_public_http_url_async(request.url)
+        except ValueError:
+            await route.abort("blockedbyclient")
+            return
+        await route.continue_()
 
     async def _goto_provider(self, handle: ProviderHandle) -> ProviderHandle:
         try:
