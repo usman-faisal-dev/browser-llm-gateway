@@ -21,7 +21,7 @@ Client Application / Agent  ──>  OpenAI REST API  ──>  Browser LLM Gatew
   - DeepSeek
 - **Extensible via Selectors**: Add new web chat interfaces simply by adding a JSON selector config to `data/providers/`.
 - **Tool Calling Support**: Automatically serializes tool schemas and parses model outputs into OpenAI-style `tool_calls` for autonomous agents.
-- **Delta Prompting**: Stateful hash tracking minimizes prompt re-transmission in multi-turn conversations.
+- **Conversation Isolation**: Each API request starts a fresh provider chat using the caller-supplied transcript, preventing cross-client history leakage.
 - **Browser Stealth & Fingerprints**: Configurable user-agents, headers, timezones, and anti-detection scripts.
 - **Management Dashboard**: Built-in web UI (`http://127.0.0.1:9920/`) to view, configure, and manage provider sessions.
 
