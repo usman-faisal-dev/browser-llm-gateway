@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import socket
 import unittest
 from unittest.mock import AsyncMock, patch
@@ -70,9 +69,7 @@ class ProviderUrlSecurityTests(unittest.TestCase):
 
 class ProviderUrlDnsSecurityTests(unittest.IsolatedAsyncioTestCase):
     async def test_rejects_hostname_resolving_to_private_address(self) -> None:
-        records = [
-            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.8", 443))
-        ]
+        records = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.8", 443))]
         with patch("asyncio.BaseEventLoop.getaddrinfo", new=AsyncMock(return_value=records)):
             with self.assertRaisesRegex(ValueError, "private or reserved"):
                 await validate_public_http_url_async("https://public-looking.example/")
@@ -95,9 +92,7 @@ class ProviderUrlDnsSecurityTests(unittest.IsolatedAsyncioTestCase):
                 await validate_public_http_url_async("https://unresolvable.example/")
 
     async def test_accepts_hostname_resolving_only_to_public_addresses(self) -> None:
-        records = [
-            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", 443))
-        ]
+        records = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", 443))]
         with patch("asyncio.BaseEventLoop.getaddrinfo", new=AsyncMock(return_value=records)):
             await validate_public_http_url_async("https://example.com/")
 
