@@ -3,7 +3,9 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator
+
+from app.url_security import validate_public_http_url
 
 
 class ProviderStatus(str, Enum):
@@ -30,6 +32,12 @@ class ProviderConfig(BaseModel):
     response_text_selector: str | None = None
     stream_url_pattern: str | None = None
     user_data_dir: str | None = None
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: HttpUrl) -> HttpUrl:
+        validate_public_http_url(str(value))
+        return value
 
 
 class ProviderRuntime(BaseModel):
