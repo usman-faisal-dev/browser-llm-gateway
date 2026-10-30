@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import re
 import socket
 from urllib.parse import urlsplit
 
@@ -39,6 +40,8 @@ def _validated_target(url: str) -> tuple[str, int, bool]:
     try:
         address = ipaddress.ip_address(hostname)
     except ValueError:
+        if re.fullmatch(r"[0-9.]+", hostname):
+            raise ValueError("Provider URL must use a canonical public IP address or hostname")
         if "." not in hostname or any(hostname == suffix[1:] or hostname.endswith(suffix) for suffix in _BLOCKED_HOST_SUFFIXES):
             raise ValueError("Provider URL must use a public hostname")
         return hostname, port or (443 if parsed.scheme.lower() == "https" else 80), False
