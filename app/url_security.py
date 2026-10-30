@@ -42,7 +42,10 @@ def _validated_target(url: str) -> tuple[str, int, bool]:
     except ValueError:
         if re.fullmatch(r"[0-9.]+", hostname):
             raise ValueError("Provider URL must use a canonical public IP address or hostname")
-        if "." not in hostname or any(hostname == suffix[1:] or hostname.endswith(suffix) for suffix in _BLOCKED_HOST_SUFFIXES):
+        if "." not in hostname or any(
+            hostname == suffix[1:] or hostname.endswith(suffix)
+            for suffix in _BLOCKED_HOST_SUFFIXES
+        ):
             raise ValueError("Provider URL must use a public hostname")
         return hostname, port or (443 if parsed.scheme.lower() == "https" else 80), False
 
@@ -57,10 +60,13 @@ def validate_public_http_url(url: str) -> None:
 
 
 async def validate_public_http_url_async(url: str) -> None:
-    """Also resolve DNS and reject hostnames resolving to any non-public address.
+    """Resolve DNS and reject hostnames with any non-public address.
 
-    This is used for every browser request, so redirects and subresource requests
-    are checked as well as the initial provider URL.
+    Called for browser HTTP(S) requests, including redirects and subresources.
+    This DNS preflight is defense in depth, not a complete egress boundary:
+    Chromium resolves the hostname separately, and WebSocket traffic is not
+    covered by Playwright's HTTP request routing. Deployments must also apply
+    outbound network restrictions at the host/container/network layer.
     """
     hostname, port, is_ip_literal = _validated_target(url)
     if is_ip_literal:
