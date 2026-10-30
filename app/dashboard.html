@@ -908,6 +908,18 @@
     let settingsToastTimer = null;
     const CHAT_REQUEST_TIMEOUT_MS = 120000;
 
+    async function apiFetch(input, init = {}) {
+      let token = sessionStorage.getItem("llmBridgeApiKey");
+      if (!token) {
+        token = window.prompt("Enter the Browser LLM Gateway API key (LLM_BRIDGE_API_KEY):");
+        if (!token) throw new Error("API key is required.");
+        sessionStorage.setItem("llmBridgeApiKey", token);
+      }
+      const headers = new Headers(init.headers || {});
+      headers.set("Authorization", `Bearer ${token}`);
+      return window.fetch(input, {...init, headers});
+    }
+
     function showToast(message, durationMs = 3000) {
       window.clearTimeout(settingsToastTimer);
       settingsToast.textContent = message;
@@ -968,7 +980,7 @@
       Object.keys(data).forEach((key) => {
         if (data[key] === "") delete data[key];
       });
-      const response = await fetch("/api/providers", {
+      const response = await apiFetch("/api/providers", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify(data),
@@ -983,7 +995,7 @@
     });
 
     async function login(name) {
-      const response = await fetch(`/api/providers/${encodeURIComponent(name)}/login`, {method: "POST"});
+      const response = await apiFetch(`/api/providers/${encodeURIComponent(name)}/login`, {method: "POST"});
       if (!response.ok) {
         throw new Error(await response.text());
       }
@@ -992,7 +1004,7 @@
     }
 
     async function loadProviders() {
-      const response = await fetch("/api/providers");
+      const response = await apiFetch("/api/providers");
       const payload = await response.json();
       providers = payload.providers || [];
       grid.innerHTML = payload.providers.map((provider) => card(provider)).join("");
@@ -1015,7 +1027,7 @@
     }
 
     async function loadBrowserSettings() {
-      const response = await fetch("/api/settings/browser");
+      const response = await apiFetch("/api/settings/browser");
       const payload = await response.json();
       browserSettings = payload.settings;
       browserOptions = payload.options || browserOptions;
@@ -1102,7 +1114,7 @@
         platform,
       };
       try {
-        const response = await fetch("/api/settings/browser", {
+        const response = await apiFetch("/api/settings/browser", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify(payload),
@@ -1120,7 +1132,7 @@
     }
 
     async function saveSession(name) {
-      const response = await fetch(`/api/providers/${encodeURIComponent(name)}/session`, {method: "POST"});
+      const response = await apiFetch(`/api/providers/${encodeURIComponent(name)}/session`, {method: "POST"});
       if (!response.ok) {
         throw new Error(await response.text());
       }
@@ -1129,12 +1141,12 @@
     }
 
     async function toggleProvider(name) {
-      await fetch(`/api/providers/${encodeURIComponent(name)}/toggle`, {method: "POST"});
+      await apiFetch(`/api/providers/${encodeURIComponent(name)}/toggle`, {method: "POST"});
       await loadProviders();
     }
 
     async function deleteProvider(name) {
-      await fetch(`/api/providers/${encodeURIComponent(name)}/delete`, {method: "POST"});
+      await apiFetch(`/api/providers/${encodeURIComponent(name)}/delete`, {method: "POST"});
       await loadProviders();
     }
 
@@ -1226,7 +1238,7 @@
       }, CHAT_REQUEST_TIMEOUT_MS);
 
       try {
-        const response = await fetch("/v1/chat/completions", {
+        const response = await apiFetch("/v1/chat/completions", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
           signal: chatAbortController.signal,
