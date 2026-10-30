@@ -86,7 +86,7 @@ async def validate_public_http_url_async(url: str) -> None:
 
     for record in records:
         address = ipaddress.ip_address(record[4][0])
-        if address.ipv4_mapped is not None:
+        if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
             address = address.ipv4_mapped
         if not address.is_global:
             raise ValueError("Provider hostname resolves to a private or reserved IP address")
