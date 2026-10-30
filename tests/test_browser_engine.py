@@ -65,6 +65,7 @@ class FakeContext:
         self.closed = False
         self.close_calls = 0
         self.init_scripts: list[str] = []
+        self.routes: list[tuple[str, object]] = []
 
     @property
     def pages(self) -> list[FakePage]:
@@ -81,6 +82,9 @@ class FakeContext:
 
     async def add_init_script(self, script: str) -> None:
         self.init_scripts.append(script)
+
+    async def route(self, pattern: str, handler: object) -> None:
+        self.routes.append((pattern, handler))
 
 
 class FakeChromium:
@@ -167,6 +171,9 @@ class BrowserEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(launch_kwargs["timezone_id"], "America/New_York")
         self.assertEqual(launch_kwargs["args"][0], "--window-size=1920,1080")
         self.assertNotIn("--no-sandbox", launch_kwargs["args"])
+        self.assertEqual(launch_kwargs["service_workers"], "block")
+        self.assertEqual(len(context.routes), 1)
+        self.assertEqual(context.routes[0][0], "**/*")
         self.assertIn("--disable-component-update", launch_kwargs["args"])
         self.assertIn("--disable-sync", launch_kwargs["args"])
         self.assertIn("--no-default-browser-check", launch_kwargs["args"])
@@ -254,6 +261,36 @@ class BrowserEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(new_page.goto_calls, 1)
         self.assertEqual(new_page.goto_init_script_counts, [1])
         self.assertEqual(new_page.bring_to_front_calls, 1)
+
+    async def test_browser_request_guard_aborts_private_destinations(self) -> None:
+        config = provider_config()
+        engine = BrowserEngine(FakeStore(config))
+        route = type("FakeRoute", (), {"abort": AsyncMock(), "continue_": AsyncMock()})()
+        request = type("FakeRequest", (), {"url": "http://127.0.0.1/admin"})()
+
+        with patch(
+            "app.browser_engine.validate_public_http_url_async",
+            new=AsyncMock(side_effect=ValueError("private address")),
+        ):
+            await engine._guard_browser_request(route, request)
+
+        route.abort.assert_awaited_once_with("blockedbyclient")
+        route.continue_.assert_not_awaited()
+
+    async def test_browser_request_guard_allows_public_destinations(self) -> None:
+        config = provider_config()
+        engine = BrowserEngine(FakeStore(config))
+        route = type("FakeRoute", (), {"abort": AsyncMock(), "continue_": AsyncMock()})()
+        request = type("FakeRequest", (), {"url": "https://example.com/"})()
+
+        with patch(
+            "app.browser_engine.validate_public_http_url_async",
+            new=AsyncMock(),
+        ):
+            await engine._guard_browser_request(route, request)
+
+        route.continue_.assert_awaited_once_with()
+        route.abort.assert_not_awaited()
 
     async def test_context_stealth_script_is_added_before_provider_navigation(self) -> None:
         config = provider_config()
