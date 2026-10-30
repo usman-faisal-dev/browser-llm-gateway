@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import subprocess
 import time
 import uuid
@@ -10,7 +11,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -63,12 +64,39 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="Browser LLM Gateway", version="1.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["http://127.0.0.1:9920", "http://localhost:9920"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 app.mount("/novnc", StaticFiles(directory=NOVNC_PATH), name="novnc")
+
+
+def _authorized(authorization: str | None) -> bool:
+    expected = settings.api_key
+    if not expected or not authorization:
+        return False
+    scheme, _, supplied = authorization.partition(" ")
+    return scheme.lower() == "bearer" and bool(supplied) and secrets.compare_digest(supplied, expected)
+
+
+@app.middleware("http")
+async def require_api_key(request: Request, call_next):
+    # noVNC assets are static files; the websocket proxy itself is loopback-only.
+    if request.method == "OPTIONS" or request.url.path.startswith("/novnc/"):
+        return await call_next(request)
+    if not settings.api_key:
+        return JSONResponse(
+            {"error": {"message": "Server API key is not configured", "type": "configuration_error"}},
+            status_code=503,
+        )
+    if not _authorized(request.headers.get("authorization")):
+        return JSONResponse(
+            {"error": {"message": "Missing or invalid bearer token", "type": "authentication_error"}},
+            status_code=401,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return await call_next(request)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -180,7 +208,6 @@ async def chat_completions(request: ChatCompletionRequest):
     if tools:
         prompt, new_chat, sent_hashes = _plan_prompt(model, request.messages, tools)
     else:
-        _chat_state.pop(model, None)
         prompt = _messages_to_prompt(request.messages, tools)
     _debug_dump("last_prompt.txt", prompt)
     if tools:
@@ -202,7 +229,7 @@ async def chat_completions(request: ChatCompletionRequest):
         return JSONResponse(_completion_payload(model, text, calls))
     if request.stream:
         return StreamingResponse(
-            _stream_openai_events(model, prompt),
+            _stream_openai_events(model, prompt, new_chat=True),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -211,7 +238,7 @@ async def chat_completions(request: ChatCompletionRequest):
             },
         )
 
-    content = await engine.complete(model, prompt)
+    content = await engine.complete(model, prompt, new_chat=True)
     created = int(time.time())
     return JSONResponse(
         {
@@ -235,7 +262,7 @@ async def chat_completions(request: ChatCompletionRequest):
     )
 
 
-async def _stream_openai_events(model: str, prompt: str) -> AsyncIterator[str]:
+async def _stream_openai_events(model: str, prompt: str, new_chat: bool = False) -> AsyncIterator[str]:
     completion_id = f"chatcmpl-{uuid.uuid4().hex}"
     created = int(time.time())
     initial = {
@@ -247,7 +274,7 @@ async def _stream_openai_events(model: str, prompt: str) -> AsyncIterator[str]:
     }
     yield _sse(initial)
     try:
-        async for chunk in engine.stream(model, prompt):
+        async for chunk in engine.stream(model, prompt, new_chat=new_chat):
             if not chunk:
                 continue
             payload = {
@@ -542,43 +569,19 @@ def _debug_dump(name: str, text: str) -> None:
         pass
 
 
-# ---------------- stateful chat tracking ----------------
-import hashlib
-
-# per provider: hashes of the messages already sent into the current web chat
-_chat_state: dict[str, list[str]] = {}
+# ---------------- stateless request planning ----------------
 
 
-def _note(text: str) -> None:
-    print(f"[bridge] {text}", flush=True)
-    _debug_dump("mode.txt", text)
+def _plan_prompt(
+    model: str,
+    messages: list[ChatMessage],
+    tools: list[dict[str, Any]],
+) -> tuple[str, bool, list[str]]:
+    """Rebuild the complete client transcript in a fresh provider chat per request.
 
-
-def _msg_hash(m: ChatMessage) -> str:
-    payload = json.dumps(
-        [m.role, _content_to_text(m.content), m.tool_calls, m.tool_call_id],
-        sort_keys=True, ensure_ascii=False, default=str,
-    )
-    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
-
-
-def _plan_prompt(model: str, messages: list[ChatMessage], tools: list[dict[str, Any]]) -> tuple[str, bool, list[str]]:
-    hashes = [_msg_hash(m) for m in messages]
-    prev = _chat_state.pop(model, None)  # stored again only after a successful reply
-    full = _messages_to_prompt(messages, tools)
-    if prev and len(hashes) > len(prev) and hashes[: len(prev)] == prev:
-        delta = [m for m in messages[len(prev):] if m.role != "assistant"]
-        body = _messages_to_prompt(delta, None)
-        if body:
-            prompt = "[Continuing the same task. New messages follow.]\n\n" + body + "\n\n" + _REMINDER
-            _note(f"DELTA: sending {len(prompt)} chars instead of {len(full)} ({len(delta)} new messages)")
-            return prompt, False, hashes
-    if prev is None:
-        reason = "no previous state"
-    elif len(hashes) <= len(prev):
-        reason = "history not longer than before"
-    else:
-        idx = next((i for i, (a, b) in enumerate(zip(hashes, prev)) if a != b), -1)
-        reason = f"history differs at message {idx}"
-    _note(f"FULL+NEW CHAT: sending {len(full)} chars ({reason})")
-    return full, True, hashes
+    The gateway intentionally does not retain conversation state by provider: callers
+    own their transcripts, so simultaneous API clients cannot share browser history.
+    """
+    del model
+    prompt = _messages_to_prompt(messages, tools)
+    return prompt, True, []
