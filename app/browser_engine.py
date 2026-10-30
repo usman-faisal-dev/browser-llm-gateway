@@ -327,7 +327,6 @@ class BrowserEngine:
             timezone_id=browser_settings.timezone,
             args=[
                 "--window-size=1920,1080",
-                "--no-sandbox",
                 "--disable-blink-features=AutomationControlled",
                 "--disable-component-update",
                 "--disable-sync",

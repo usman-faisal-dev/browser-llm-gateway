@@ -82,8 +82,12 @@ def _authorized(authorization: str | None) -> bool:
 
 @app.middleware("http")
 async def require_api_key(request: Request, call_next):
-    # noVNC assets are static files; the websocket proxy itself is loopback-only.
-    if request.method == "OPTIONS" or request.url.path.startswith("/novnc/"):
+    # Dashboard HTML and noVNC assets are public; API routes remain protected.
+    if (
+        request.method == "OPTIONS"
+        or (request.method == "GET" and request.url.path == "/")
+        or request.url.path.startswith("/novnc/")
+    ):
         return await call_next(request)
     if not settings.api_key:
         return JSONResponse(

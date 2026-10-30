@@ -166,7 +166,7 @@ class BrowserEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(launch_kwargs["locale"], "en-US")
         self.assertEqual(launch_kwargs["timezone_id"], "America/New_York")
         self.assertEqual(launch_kwargs["args"][0], "--window-size=1920,1080")
-        self.assertIn("--no-sandbox", launch_kwargs["args"])
+        self.assertNotIn("--no-sandbox", launch_kwargs["args"])
         self.assertIn("--disable-component-update", launch_kwargs["args"])
         self.assertIn("--disable-sync", launch_kwargs["args"])
         self.assertIn("--no-default-browser-check", launch_kwargs["args"])
