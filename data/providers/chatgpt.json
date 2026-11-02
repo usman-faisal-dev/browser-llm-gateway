@@ -5,6 +5,8 @@
   "mode": "dom",
   "input_selector": "textarea, [contenteditable='true'], #prompt-textarea",
   "send_button_selector": "button[data-testid='send-button'], button[aria-label*='Send']",
-  "response_selector": "[data-message-author-role='assistant'], .markdown",
+  "response_selector": "[data-message-role='assistant']",
+  "response_text_selector": "[data-assistant-markdown-root]",
+  "response_complete_selector": "[data-message-role='assistant'][data-message-complete]",
   "stream_url_pattern": "/backend-api/conversation"
 }
