@@ -48,6 +48,7 @@ class ConversationManager:
         provider_name: str,
         conversation_id: str,
         messages: list[ChatMessage],
+        force_rebuild: bool = False,
     ) -> ConversationPlan:
         key = (provider_name, conversation_id)
         hashes = tuple(self._message_hash(message) for message in messages)
@@ -68,7 +69,7 @@ class ConversationManager:
                 and hashes[: len(previous)] == tuple(previous)
             )
             start_index = len(previous) if extends_history else 0
-            new_chat = state.needs_rebuild or not extends_history
+            new_chat = force_rebuild or state.needs_rebuild or not extends_history
 
             # A suffix containing only assistant messages has no new input to send.
             if not new_chat and not any(
