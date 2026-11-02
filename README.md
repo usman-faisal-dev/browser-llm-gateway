@@ -21,7 +21,7 @@ Client Application / Agent  ──>  OpenAI REST API  ──>  Browser LLM Gatew
   - DeepSeek
 - **Extensible via Selectors**: Add new web chat interfaces simply by adding a JSON selector config to `data/providers/`.
 - **Tool Calling Support**: Automatically serializes tool schemas and parses model outputs into OpenAI-style `tool_calls` for autonomous agents.
-- **Conversation Isolation**: Each API request starts a fresh provider chat using the caller-supplied transcript, preventing cross-client history leakage.
+- **Persistent Conversations**: Clients can send `X-Bridge-Conversation-ID` to keep an isolated provider chat open across requests; clients without the header retain stateless fresh-chat behavior.
 - **Browser Stealth & Fingerprints**: Configurable user-agents, headers, timezones, and anti-detection scripts.
 - **Management Dashboard**: Built-in web UI (`http://127.0.0.1:9920/`) to view, configure, and manage provider sessions.
 
@@ -82,10 +82,13 @@ curl http://127.0.0.1:9920/v1/models -H "Authorization: Bearer $LLM_BRIDGE_API_K
 
 ### Chat Completion (Non-Streaming)
 
+Use the optional `X-Bridge-Conversation-ID` header to continue a provider-side conversation. Reuse the same unique ID for each request in one client conversation; use a different ID for every independent task. Requests without this header continue to start a fresh provider chat.
+
 ```bash
 curl http://127.0.0.1:9920/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $LLM_BRIDGE_API_KEY" \
+  -H "X-Bridge-Conversation-ID: cline-task-001" \
   -d '{
     "model": "chatgpt",
     "messages": [
