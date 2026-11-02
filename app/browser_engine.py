@@ -291,9 +291,12 @@ class BrowserEngine:
         new_chat: bool = False,
     ) -> AsyncIterator[str]:
         handle, created = await self._get_or_create_conversation(provider_name, conversation_id)
-        # A lost/recreated tab has no provider-side context, even if the client
-        # transcript still extends the last successful checkpoint.
-        async for chunk in self._stream_handle(handle, prompt, new_chat or created):
+        # Never send a delta into a newly created tab: it has no prior context.
+        if created and not new_chat:
+            raise RuntimeError(
+                "Provider conversation page was lost; retry to rebuild from the client transcript"
+            )
+        async for chunk in self._stream_handle(handle, prompt, new_chat):
             yield chunk
 
     async def complete_conversation(
@@ -343,6 +346,10 @@ class BrowserEngine:
                 await self._discard_handle(provider_name, handle)
             await self.start()
             return await self._create_handle(provider_name)
+
+    def has_conversation_page(self, provider_name: str, conversation_id: str) -> bool:
+        handle = self._conversation_handles.get((provider_name, conversation_id))
+        return handle is not None and self._is_handle_alive(handle)
 
     async def _get_or_create_conversation(
         self, provider_name: str, conversation_id: str
