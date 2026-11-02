@@ -62,6 +62,7 @@ class FakeContext:
     def __init__(self, page: FakePage) -> None:
         self.page = page
         self.page.context = self
+        self._pages = [page]
         self.closed = False
         self.close_calls = 0
         self.init_scripts: list[str] = []
@@ -69,16 +70,18 @@ class FakeContext:
 
     @property
     def pages(self) -> list[FakePage]:
-        return [] if self.closed else [self.page]
+        return [] if self.closed else list(self._pages)
 
     async def new_page(self) -> FakePage:
-        self.page = FakePage(context=self)
-        return self.page
+        page = FakePage(context=self)
+        self._pages.append(page)
+        return page
 
     async def close(self) -> None:
         self.close_calls += 1
         self.closed = True
-        self.page.closed = True
+        for page in self._pages:
+            page.closed = True
 
     async def add_init_script(self, script: str) -> None:
         self.init_scripts.append(script)
@@ -147,6 +150,25 @@ class BrowserEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(handle.context, new_context)
         self.assertEqual(old_context.close_calls, 1)
         self.assertIs(engine._handles[config.name], handle)
+
+    async def test_conversation_handles_get_distinct_pages_in_shared_context(self) -> None:
+        config = provider_config()
+        context = FakeContext(FakePage())
+        engine = BrowserEngine(FakeStore(config))
+        engine._playwright = FakePlaywright([context])
+
+        base = await engine._get_or_create(config.name)
+        first = await engine._get_or_create_conversation(config.name, "client-a")
+        second = await engine._get_or_create_conversation(config.name, "client-b")
+        first_again = await engine._get_or_create_conversation(config.name, "client-a")
+
+        self.assertIs(first.context, context)
+        self.assertIs(second.context, context)
+        self.assertIsNot(first.page, second.page)
+        self.assertIs(first, first_again)
+        self.assertIsNot(first.lock, second.lock)
+        self.assertEqual(len(context.pages), 3)
+        self.assertIs(engine._handles[config.name], base)
 
     async def test_create_handle_maximizes_chromium_window(self) -> None:
         config = provider_config()
