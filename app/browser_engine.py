@@ -520,10 +520,15 @@ class BrowserEngine:
 
             timed_out = time.monotonic() - started_at > settings.response_timeout_seconds
             if completion_locator is not None:
-                # Provider-specific completion markers are more reliable than guessing
-                # that generation has stopped because the DOM was briefly idle.
-                if await completion_locator.count() > previous_complete_count:
+                # The completion attribute can appear before the nested markdown has
+                # finished rendering. Do not finish the stream until text was captured.
+                is_complete = await completion_locator.count() > previous_complete_count
+                if is_complete and last_text:
                     break
+                if is_complete and timed_out:
+                    raise TimeoutError(
+                        "Provider marked the response complete but no response text was captured"
+                    )
             else:
                 idle_for = time.monotonic() - last_change
                 if last_text and idle_for >= settings.response_idle_seconds:
@@ -567,8 +572,12 @@ class BrowserEngine:
             return 0
 
     async def _latest_response_text(self, page: Page, config: ProviderConfig) -> str:
-        selector = config.response_text_selector or config.response_selector
-        locator = page.locator(selector).last
+        response = page.locator(config.response_selector).last
+        locator = (
+            response.locator(config.response_text_selector).last
+            if config.response_text_selector
+            else response
+        )
         try:
             return (await locator.inner_text(timeout=1_000)).strip()
         except Error:
