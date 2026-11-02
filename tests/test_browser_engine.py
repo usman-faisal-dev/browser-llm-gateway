@@ -376,13 +376,16 @@ class BrowserEngineTests(unittest.IsolatedAsyncioTestCase):
                 self.last = self
 
             async def count(self):
-                return 1
+                return int(self.page.response_visible)
 
             async def inner_text(self, timeout=1000):
                 return "Fallback answer"
 
         class StreamingPage:
             url = "https://example.com/chat"
+
+            def __init__(self):
+                self.response_visible = False
 
             def is_closed(self):
                 return False
@@ -391,7 +394,7 @@ class BrowserEngineTests(unittest.IsolatedAsyncioTestCase):
                 return Locator(self)
 
             async def wait_for_timeout(self, milliseconds):
-                return None
+                self.response_visible = True
 
         page = StreamingPage()
         handle = ProviderHandle(config=config, context=None, page=page, lock=asyncio.Lock())
