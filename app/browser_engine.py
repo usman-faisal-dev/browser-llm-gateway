@@ -536,6 +536,10 @@ class BrowserEngine:
         except Error as exc:
             if not self._is_closed_error(exc):
                 raise
+            if handle.conversation_id is not None:
+                raise RuntimeError(
+                    "Provider conversation tab was closed; retry to rebuild from the client transcript"
+                ) from exc
             handle = await self._recreate_handle(handle.config.name, handle)
             await handle.page.goto(str(handle.config.url), wait_until="domcontentloaded")
             await handle.page.bring_to_front()
