@@ -158,10 +158,13 @@ class BrowserEngineTests(unittest.IsolatedAsyncioTestCase):
         engine._playwright = FakePlaywright([context])
 
         base = await engine._get_or_create(config.name)
-        first = await engine._get_or_create_conversation(config.name, "client-a")
-        second = await engine._get_or_create_conversation(config.name, "client-b")
-        first_again = await engine._get_or_create_conversation(config.name, "client-a")
+        first, first_created = await engine._get_or_create_conversation(config.name, "client-a")
+        second, second_created = await engine._get_or_create_conversation(config.name, "client-b")
+        first_again, first_again_created = await engine._get_or_create_conversation(config.name, "client-a")
 
+        self.assertTrue(first_created)
+        self.assertTrue(second_created)
+        self.assertFalse(first_again_created)
         self.assertIs(first.context, context)
         self.assertIs(second.context, context)
         self.assertIsNot(first.page, second.page)
