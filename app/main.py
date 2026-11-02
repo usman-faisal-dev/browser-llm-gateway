@@ -354,9 +354,9 @@ async def _stream_openai_events(
         "model": model,
         "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
     }
-    yield _sse(initial)
     completed = False
     try:
+        yield _sse(initial)
         if plan is None:
             provider_stream = engine.stream(model, prompt, new_chat=new_chat)
         else:
