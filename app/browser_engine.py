@@ -346,20 +346,28 @@ class BrowserEngine:
     ) -> ProviderHandle:
         key = (provider_name, conversation_id)
         async with self._conversation_lock:
-            base_handle = await self._get_or_create(provider_name)
-            handle = self._conversation_handles.get(key)
-            if handle is not None and self._is_handle_alive(handle):
+            async with self._engine_lock:
+                base_handle = self._handles.get(provider_name)
+                if base_handle is not None and not self._is_handle_alive(base_handle):
+                    await self._discard_handle(provider_name, base_handle)
+                    base_handle = None
+                if base_handle is None:
+                    await self.start()
+                    base_handle = await self._create_handle(provider_name)
+
+                handle = self._conversation_handles.get(key)
+                if handle is not None and self._is_handle_alive(handle):
+                    return handle
+                page = await base_handle.context.new_page()
+                await self._fit_browser_window(page)
+                handle = ProviderHandle(
+                    config=base_handle.config,
+                    context=base_handle.context,
+                    page=page,
+                    lock=asyncio.Lock(),
+                )
+                self._conversation_handles[key] = handle
                 return handle
-            page = await base_handle.context.new_page()
-            await self._fit_browser_window(page)
-            handle = ProviderHandle(
-                config=base_handle.config,
-                context=base_handle.context,
-                page=page,
-                lock=asyncio.Lock(),
-            )
-            self._conversation_handles[key] = handle
-            return handle
 
     async def _create_fresh_handle(self, provider_name: str) -> ProviderHandle:
         async with self._engine_lock:
