@@ -45,5 +45,34 @@ class ProviderStoreTests(unittest.TestCase):
             self.assertFalse(store.exists("test"))
 
 
+
+    def test_response_completion_selector_is_persisted(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = ProviderStore(Path(temp_dir))
+            request = ProviderCreateRequest(
+                name="chatgpt",
+                display_name="ChatGPT",
+                url="https://chatgpt.com/",
+                input_selector="textarea",
+                response_selector="[data-message-role='assistant']",
+                response_text_selector="[data-assistant-markdown-root]",
+                response_complete_selector=(
+                    "[data-message-role='assistant'][data-message-complete]"
+                ),
+            )
+
+            saved = store.upsert(request)
+            loaded = store.load("chatgpt")
+
+            self.assertEqual(
+                saved.response_complete_selector,
+                "[data-message-role='assistant'][data-message-complete]",
+            )
+            self.assertEqual(
+                loaded.response_complete_selector,
+                "[data-message-role='assistant'][data-message-complete]",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
