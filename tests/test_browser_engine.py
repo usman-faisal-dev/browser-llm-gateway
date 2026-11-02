@@ -173,6 +173,29 @@ class BrowserEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(context.pages), 3)
         self.assertIs(engine._handles[config.name], base)
 
+    async def test_missing_conversation_page_rejects_delta_prompt(self) -> None:
+        config = provider_config()
+        context = FakeContext(FakePage())
+        engine = BrowserEngine(FakeStore(config))
+        engine._playwright = FakePlaywright([context])
+
+        with self.assertRaisesRegex(RuntimeError, "page was lost"):
+            _ = [chunk async for chunk in engine.stream_conversation(
+                config.name, "client-a", "only the delta", new_chat=False
+            )]
+
+    async def test_conversation_page_presence_tracks_closed_tabs(self) -> None:
+        config = provider_config()
+        context = FakeContext(FakePage())
+        engine = BrowserEngine(FakeStore(config))
+        engine._playwright = FakePlaywright([context])
+
+        handle, created = await engine._get_or_create_conversation(config.name, "client-a")
+        self.assertTrue(created)
+        self.assertTrue(engine.has_conversation_page(config.name, "client-a"))
+        handle.page.closed = True
+        self.assertFalse(engine.has_conversation_page(config.name, "client-a"))
+
     async def test_create_handle_maximizes_chromium_window(self) -> None:
         config = provider_config()
         context = FakeContext(FakePage())
