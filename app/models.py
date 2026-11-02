@@ -30,6 +30,7 @@ class ProviderConfig(BaseModel):
     send_button_selector: str | None = None
     response_selector: str
     response_text_selector: str | None = None
+    response_complete_selector: str | None = None
     stream_url_pattern: str | None = None
     user_data_dir: str | None = None
 
@@ -75,6 +76,7 @@ class ProviderCreateRequest(BaseModel):
     send_button_selector: str | None = None
     response_selector: str
     response_text_selector: str | None = None
+    response_complete_selector: str | None = None
     stream_url_pattern: str | None = None
 
     @field_validator("url")
