@@ -210,6 +210,7 @@ class ProviderHandle:
     lock: asyncio.Lock
     status: ProviderStatus = ProviderStatus.disconnected
     error: str | None = None
+    conversation_id: str | None = None
 
 
 class BrowserEngine:
@@ -217,7 +218,10 @@ class BrowserEngine:
         self.store = store
         self._playwright: Playwright | None = None
         self._handles: dict[str, ProviderHandle] = {}
+        self._conversation_handles: dict[tuple[str, str], ProviderHandle] = {}
         self._engine_lock = asyncio.Lock()
+        self._conversation_lock = asyncio.Lock()
+        self._session_save_lock = asyncio.Lock()
 
     async def start(self) -> None:
         ensure_data_dirs()
@@ -230,6 +234,7 @@ class BrowserEngine:
                 await self._save_session(handle)
             await self._close_context(handle.context)
         self._handles.clear()
+        self._conversation_handles.clear()
         if self._playwright is not None:
             await self._playwright.stop()
             self._playwright = None
@@ -271,8 +276,46 @@ class BrowserEngine:
             chunks.append(chunk)
         return "".join(chunks)
 
-    async def stream(self, provider_name: str, prompt: str, new_chat: bool = False) -> AsyncIterator[str]:
+    async def stream(
+        self, provider_name: str, prompt: str, new_chat: bool = False
+    ) -> AsyncIterator[str]:
         handle = await self._get_or_create(provider_name)
+        async for chunk in self._stream_handle(handle, prompt, new_chat):
+            yield chunk
+
+    async def stream_conversation(
+        self,
+        provider_name: str,
+        conversation_id: str,
+        prompt: str,
+        new_chat: bool = False,
+    ) -> AsyncIterator[str]:
+        handle, created = await self._get_or_create_conversation(provider_name, conversation_id)
+        # Never send a delta into a newly created tab: it has no prior context.
+        if created and not new_chat:
+            raise RuntimeError(
+                "Provider conversation page was lost; retry to rebuild from the client transcript"
+            )
+        async for chunk in self._stream_handle(handle, prompt, new_chat):
+            yield chunk
+
+    async def complete_conversation(
+        self,
+        provider_name: str,
+        conversation_id: str,
+        prompt: str,
+        new_chat: bool = False,
+    ) -> str:
+        chunks: list[str] = []
+        async for chunk in self.stream_conversation(
+            provider_name, conversation_id, prompt, new_chat=new_chat
+        ):
+            chunks.append(chunk)
+        return "".join(chunks)
+
+    async def _stream_handle(
+        self, handle: ProviderHandle, prompt: str, new_chat: bool
+    ) -> AsyncIterator[str]:
         async with handle.lock:
             handle.status = ProviderStatus.busy
             handle.error = None
@@ -287,7 +330,6 @@ class BrowserEngine:
                     async for chunk in self._dom_stream(handle, prompt):
                         yield chunk
                 print(f"[bridge] chat url after reply: {handle.page.url}", flush=True)
-                handle = self._handles.get(provider_name, handle)
                 handle.status = ProviderStatus.connected
                 await self._save_session(handle)
             except Exception as exc:  # noqa: BLE001 - surfaced to caller.
@@ -304,6 +346,39 @@ class BrowserEngine:
                 await self._discard_handle(provider_name, handle)
             await self.start()
             return await self._create_handle(provider_name)
+
+    def has_conversation_page(self, provider_name: str, conversation_id: str) -> bool:
+        handle = self._conversation_handles.get((provider_name, conversation_id))
+        return handle is not None and self._is_handle_alive(handle)
+
+    async def _get_or_create_conversation(
+        self, provider_name: str, conversation_id: str
+    ) -> tuple[ProviderHandle, bool]:
+        key = (provider_name, conversation_id)
+        async with self._conversation_lock:
+            async with self._engine_lock:
+                base_handle = self._handles.get(provider_name)
+                if base_handle is not None and not self._is_handle_alive(base_handle):
+                    await self._discard_handle(provider_name, base_handle)
+                    base_handle = None
+                if base_handle is None:
+                    await self.start()
+                    base_handle = await self._create_handle(provider_name)
+
+                handle = self._conversation_handles.get(key)
+                if handle is not None and self._is_handle_alive(handle):
+                    return handle, False
+                page = await base_handle.context.new_page()
+                await self._fit_browser_window(page)
+                handle = ProviderHandle(
+                    config=base_handle.config,
+                    context=base_handle.context,
+                    page=page,
+                    lock=asyncio.Lock(),
+                    conversation_id=conversation_id,
+                )
+                self._conversation_handles[key] = handle
+                return handle, True
 
     async def _create_fresh_handle(self, provider_name: str) -> ProviderHandle:
         async with self._engine_lock:
@@ -438,6 +513,11 @@ class BrowserEngine:
 
     async def _discard_handle(self, provider_name: str, handle: ProviderHandle) -> None:
         self._handles.pop(provider_name, None)
+        self._conversation_handles = {
+            key: value
+            for key, value in self._conversation_handles.items()
+            if key[0] != provider_name
+        }
         await self._close_context(handle.context)
 
     async def _close_context(self, context: BrowserContext) -> None:
@@ -463,6 +543,10 @@ class BrowserEngine:
         except Error as exc:
             if not self._is_closed_error(exc):
                 raise
+            if handle.conversation_id is not None:
+                raise RuntimeError(
+                    "Provider conversation tab was closed; retry to rebuild from the client transcript"
+                ) from exc
             handle = await self._recreate_handle(handle.config.name, handle)
             await handle.page.goto(str(handle.config.url), wait_until="domcontentloaded")
             await handle.page.bring_to_front()
@@ -475,6 +559,10 @@ class BrowserEngine:
     async def _dom_stream(self, handle: ProviderHandle, prompt: str) -> AsyncIterator[str]:
         page = handle.page
         if page.is_closed():
+            if handle.conversation_id is not None:
+                raise RuntimeError(
+                    "Provider conversation tab was closed; retry to rebuild from the client transcript"
+                )
             handle = await self._recreate_handle(handle.config.name, handle)
             page = handle.page
 
@@ -585,7 +673,8 @@ class BrowserEngine:
 
     async def _save_session(self, handle: ProviderHandle) -> None:
         session_path = self._session_path(handle.config)
-        await handle.context.storage_state(path=str(session_path))
+        async with self._session_save_lock:
+            await handle.context.storage_state(path=str(session_path))
 
     def _runtime(
         self, config: ProviderConfig, handle: ProviderHandle | None

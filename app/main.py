@@ -11,12 +11,17 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.browser_engine import BrowserEngine
+from app.conversation_manager import (
+    ConversationBusyError,
+    ConversationManager,
+    ConversationPlan,
+)
 from app.models import ChatCompletionRequest, ChatMessage, ProviderCreateRequest
 from app.provider_store import ProviderStore
 from app.settings import (
@@ -33,6 +38,7 @@ from app.settings import (
 
 store = ProviderStore()
 engine = BrowserEngine(store)
+conversation_manager = ConversationManager()
 DASHBOARD_PATH = BASE_DIR / "app" / "dashboard.html"
 NOVNC_PATH = BASE_DIR / "novnc"
 VNC_SETUP_PATH = BASE_DIR / "app" / "vnc_setup.sh"
@@ -67,7 +73,7 @@ app.add_middleware(
     allow_origins=["http://127.0.0.1:9920", "http://localhost:9920"],
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-Bridge-Conversation-ID"],
 )
 app.mount("/novnc", StaticFiles(directory=NOVNC_PATH), name="novnc")
 
@@ -201,28 +207,88 @@ async def list_models() -> dict[str, Any]:
 
 
 @app.post("/v1/chat/completions")
-async def chat_completions(request: ChatCompletionRequest):
+async def chat_completions(
+    request: ChatCompletionRequest,
+    conversation_id: str | None = Header(default=None, alias="X-Bridge-Conversation-ID"),
+):
     model = request.model or settings.default_model
     if not store.exists(model):
         raise HTTPException(status_code=404, detail=f"Unknown model/provider: {model}")
     if not store.load(model).enabled:
         raise HTTPException(status_code=404, detail=f"Unknown model/provider: {model}")
 
+    if conversation_id is not None:
+        conversation_id = conversation_id.strip()
+        if (
+            not conversation_id
+            or len(conversation_id) > 128
+            or any(ord(char) < 33 or ord(char) == 127 for char in conversation_id)
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="X-Bridge-Conversation-ID must be 1-128 printable non-space characters",
+            )
+
     tools = request.tools or []
-    if tools:
-        prompt, new_chat, sent_hashes = _plan_prompt(model, request.messages, tools)
+    plan: ConversationPlan | None = None
+    if conversation_id is not None:
+        try:
+            plan = await conversation_manager.begin(
+                model,
+                conversation_id,
+                request.messages,
+                force_rebuild=not engine.has_conversation_page(model, conversation_id),
+            )
+        except ConversationBusyError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        delta_messages = (
+            request.messages
+            if plan.new_chat
+            else [
+                message
+                for message in request.messages[plan.start_index:]
+                if message.role != "assistant"
+            ]
+        )
+        prompt = _messages_to_prompt(delta_messages, tools)
+        new_chat = plan.new_chat
+    elif tools:
+        prompt, new_chat, _ = _plan_prompt(model, request.messages, tools)
     else:
         prompt = _messages_to_prompt(request.messages, tools)
+        new_chat = True
+
     _debug_dump("last_prompt.txt", prompt)
+
     if tools:
-        content = await engine.complete(model, prompt, new_chat=new_chat)
-        _debug_dump("last_reply.txt", content)
-        text, calls = _extract_tool_calls(content, tools)
-        if not calls and "<tool_call" in (content or ""):
-            retry = "[Your previous reply used an invalid tool_call format and was rejected. Re-emit the same call exactly in the specified format.]"
-            content = await engine.complete(model, retry)
+        try:
+            if plan is not None:
+                content = await engine.complete_conversation(
+                    model, plan.conversation_id, prompt, new_chat=new_chat
+                )
+            else:
+                content = await engine.complete(model, prompt, new_chat=new_chat)
             _debug_dump("last_reply.txt", content)
             text, calls = _extract_tool_calls(content, tools)
+            if not calls and "<tool_call" in (content or ""):
+                retry = (
+                    "[Your previous reply used an invalid tool_call format and was rejected. "
+                    "Re-emit the same call exactly in the specified format.]"
+                )
+                if plan is not None:
+                    content = await engine.complete_conversation(
+                        model, plan.conversation_id, retry, new_chat=False
+                    )
+                else:
+                    content = await engine.complete(model, retry)
+                _debug_dump("last_reply.txt", content)
+                text, calls = _extract_tool_calls(content, tools)
+            if plan is not None:
+                await conversation_manager.finish(plan)
+        except Exception:
+            if plan is not None:
+                await conversation_manager.fail(plan)
+            raise
         if request.stream:
             return StreamingResponse(
                 _fake_stream(model, text, calls),
@@ -230,9 +296,10 @@ async def chat_completions(request: ChatCompletionRequest):
                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
             )
         return JSONResponse(_completion_payload(model, text, calls))
+
     if request.stream:
         return StreamingResponse(
-            _stream_openai_events(model, prompt, new_chat=True),
+            _stream_openai_events(model, prompt, new_chat=new_chat, plan=plan),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -241,7 +308,19 @@ async def chat_completions(request: ChatCompletionRequest):
             },
         )
 
-    content = await engine.complete(model, prompt, new_chat=True)
+    try:
+        if plan is not None:
+            content = await engine.complete_conversation(
+                model, plan.conversation_id, prompt, new_chat=new_chat
+            )
+            await conversation_manager.finish(plan)
+        else:
+            content = await engine.complete(model, prompt, new_chat=new_chat)
+    except Exception:
+        if plan is not None:
+            await conversation_manager.fail(plan)
+        raise
+
     created = int(time.time())
     return JSONResponse(
         {
@@ -265,7 +344,12 @@ async def chat_completions(request: ChatCompletionRequest):
     )
 
 
-async def _stream_openai_events(model: str, prompt: str, new_chat: bool = False) -> AsyncIterator[str]:
+async def _stream_openai_events(
+    model: str,
+    prompt: str,
+    new_chat: bool = False,
+    plan: ConversationPlan | None = None,
+) -> AsyncIterator[str]:
     completion_id = f"chatcmpl-{uuid.uuid4().hex}"
     created = int(time.time())
     initial = {
@@ -275,9 +359,16 @@ async def _stream_openai_events(model: str, prompt: str, new_chat: bool = False)
         "model": model,
         "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
     }
-    yield _sse(initial)
+    completed = False
     try:
-        async for chunk in engine.stream(model, prompt, new_chat=new_chat):
+        yield _sse(initial)
+        if plan is None:
+            provider_stream = engine.stream(model, prompt, new_chat=new_chat)
+        else:
+            provider_stream = engine.stream_conversation(
+                model, plan.conversation_id, prompt, new_chat=new_chat
+            )
+        async for chunk in provider_stream:
             if not chunk:
                 continue
             payload = {
@@ -288,6 +379,9 @@ async def _stream_openai_events(model: str, prompt: str, new_chat: bool = False)
                 "choices": [{"index": 0, "delta": {"content": chunk}, "finish_reason": None}],
             }
             yield _sse(payload)
+        if plan is not None:
+            await conversation_manager.finish(plan)
+        completed = True
         final = {
             "id": completion_id,
             "object": "chat.completion.chunk",
@@ -298,8 +392,13 @@ async def _stream_openai_events(model: str, prompt: str, new_chat: bool = False)
         yield _sse(final)
         yield "data: [DONE]\n\n"
     except Exception as exc:  # noqa: BLE001 - stream errors need to reach clients.
+        if plan is not None:
+            await conversation_manager.fail(plan)
         yield _sse({"error": {"message": str(exc), "type": "llm_bridge_error"}})
         yield "data: [DONE]\n\n"
+    finally:
+        if plan is not None and not completed:
+            await conversation_manager.fail(plan)
 
 
 def _sse(payload: dict[str, Any]) -> str:
