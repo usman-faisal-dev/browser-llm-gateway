@@ -289,8 +289,10 @@ class BrowserEngine:
         prompt: str,
         new_chat: bool = False,
     ) -> AsyncIterator[str]:
-        handle = await self._get_or_create_conversation(provider_name, conversation_id)
-        async for chunk in self._stream_handle(handle, prompt, new_chat):
+        handle, created = await self._get_or_create_conversation(provider_name, conversation_id)
+        # A lost/recreated tab has no provider-side context, even if the client
+        # transcript still extends the last successful checkpoint.
+        async for chunk in self._stream_handle(handle, prompt, new_chat or created):
             yield chunk
 
     async def complete_conversation(
@@ -343,7 +345,7 @@ class BrowserEngine:
 
     async def _get_or_create_conversation(
         self, provider_name: str, conversation_id: str
-    ) -> ProviderHandle:
+    ) -> tuple[ProviderHandle, bool]:
         key = (provider_name, conversation_id)
         async with self._conversation_lock:
             async with self._engine_lock:
@@ -357,7 +359,7 @@ class BrowserEngine:
 
                 handle = self._conversation_handles.get(key)
                 if handle is not None and self._is_handle_alive(handle):
-                    return handle
+                    return handle, False
                 page = await base_handle.context.new_page()
                 await self._fit_browser_window(page)
                 handle = ProviderHandle(
@@ -367,7 +369,7 @@ class BrowserEngine:
                     lock=asyncio.Lock(),
                 )
                 self._conversation_handles[key] = handle
-                return handle
+                return handle, True
 
     async def _create_fresh_handle(self, provider_name: str) -> ProviderHandle:
         async with self._engine_lock:
