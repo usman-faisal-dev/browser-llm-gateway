@@ -308,5 +308,170 @@ class BrowserEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(STEALTH_INIT_SCRIPT.splitlines()[0], context.init_scripts[0])
 
 
+
+    async def test_dom_stream_waits_for_configured_completion_marker(self) -> None:
+        config = ProviderConfig(
+            name="test",
+            display_name="Test",
+            url="https://example.com/",
+            input_selector="textarea",
+            response_selector=".assistant-message",
+            response_text_selector=".answer",
+            response_complete_selector=".assistant-message.complete",
+        )
+
+        class Locator:
+            def __init__(self, page, selector):
+                self.page = page
+                self.selector = selector
+                self.last = self
+
+            def locator(self, selector):
+                return Locator(self.page, selector)
+
+            async def count(self):
+                if self.selector == ".assistant-message":
+                    return int(self.page.response_visible)
+                if self.selector == ".assistant-message.complete":
+                    return int(self.page.response_complete)
+                return 1
+
+            async def inner_text(self, timeout=1000):
+                return self.page.answer
+
+        class StreamingPage:
+            url = "https://example.com/chat"
+
+            def __init__(self):
+                self.response_visible = False
+                self.response_complete = False
+                self.answer = "A complete answer"
+
+            def is_closed(self):
+                return False
+
+            def locator(self, selector):
+                return Locator(self, selector)
+
+            async def wait_for_timeout(self, milliseconds):
+                if not self.response_visible:
+                    self.response_visible = True
+                else:
+                    self.response_complete = True
+
+        page = StreamingPage()
+        handle = ProviderHandle(config=config, context=None, page=page, lock=asyncio.Lock())
+        engine = BrowserEngine(FakeStore(config))
+        engine._fill_prompt = AsyncMock()
+        engine._send_prompt = AsyncMock()
+
+        chunks = [chunk async for chunk in engine._dom_stream(handle, "hello")]
+
+        self.assertEqual(chunks, ["A complete answer"])
+        self.assertTrue(page.response_complete)
+
+    async def test_dom_stream_waits_for_text_after_completion_marker(self) -> None:
+        config = ProviderConfig(
+            name="test",
+            display_name="Test",
+            url="https://example.com/",
+            input_selector="textarea",
+            response_selector=".assistant-message",
+            response_text_selector=".answer",
+            response_complete_selector=".assistant-message.complete",
+        )
+
+        class Locator:
+            def __init__(self, page, selector):
+                self.page = page
+                self.selector = selector
+                self.last = self
+
+            def locator(self, selector):
+                return Locator(self.page, selector)
+
+            async def count(self):
+                if self.selector == ".assistant-message":
+                    return int(self.page.response_visible)
+                if self.selector == ".assistant-message.complete":
+                    return int(self.page.response_complete)
+                return 1
+
+            async def inner_text(self, timeout=1000):
+                return self.page.answer
+
+        class StreamingPage:
+            url = "https://example.com/chat"
+
+            def __init__(self):
+                self.response_visible = False
+                self.response_complete = False
+                self.answer = ""
+
+            def is_closed(self):
+                return False
+
+            def locator(self, selector):
+                return Locator(self, selector)
+
+            async def wait_for_timeout(self, milliseconds):
+                if not self.response_visible:
+                    self.response_visible = True
+                elif not self.response_complete:
+                    self.response_complete = True
+                else:
+                    self.answer = "Rendered after completion"
+
+        page = StreamingPage()
+        handle = ProviderHandle(config=config, context=None, page=page, lock=asyncio.Lock())
+        engine = BrowserEngine(FakeStore(config))
+        engine._fill_prompt = AsyncMock()
+        engine._send_prompt = AsyncMock()
+
+        chunks = [chunk async for chunk in engine._dom_stream(handle, "hello")]
+
+        self.assertEqual(chunks, ["Rendered after completion"])
+
+    async def test_dom_stream_keeps_idle_fallback_without_completion_selector(self) -> None:
+        config = provider_config()
+
+        class Locator:
+            def __init__(self, page):
+                self.page = page
+                self.last = self
+
+            async def count(self):
+                return int(self.page.response_visible)
+
+            async def inner_text(self, timeout=1000):
+                return "Fallback answer"
+
+        class StreamingPage:
+            url = "https://example.com/chat"
+
+            def __init__(self):
+                self.response_visible = False
+
+            def is_closed(self):
+                return False
+
+            def locator(self, selector):
+                return Locator(self)
+
+            async def wait_for_timeout(self, milliseconds):
+                self.response_visible = True
+
+        page = StreamingPage()
+        handle = ProviderHandle(config=config, context=None, page=page, lock=asyncio.Lock())
+        engine = BrowserEngine(FakeStore(config))
+        engine._fill_prompt = AsyncMock()
+        engine._send_prompt = AsyncMock()
+
+        with patch("app.browser_engine.settings.response_idle_seconds", 0):
+            chunks = [chunk async for chunk in engine._dom_stream(handle, "hello")]
+
+        self.assertEqual(chunks, ["Fallback answer"])
+
+
 if __name__ == "__main__":
     unittest.main()

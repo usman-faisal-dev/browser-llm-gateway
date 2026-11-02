@@ -483,6 +483,14 @@ class BrowserEngine:
             page = handle.page
 
         previous_count = await self._response_count(page, handle.config)
+        completion_locator = (
+            page.locator(handle.config.response_complete_selector)
+            if handle.config.response_complete_selector
+            else None
+        )
+        previous_complete_count = (
+            await completion_locator.count() if completion_locator is not None else 0
+        )
         await self._fill_prompt(page, handle.config, prompt)
         await self._send_prompt(page, handle.config)
 
@@ -510,10 +518,22 @@ class BrowserEngine:
                 last_text = text
                 last_change = time.monotonic()
 
-            idle_for = time.monotonic() - last_change
             timed_out = time.monotonic() - started_at > settings.response_timeout_seconds
-            if last_text and idle_for >= settings.response_idle_seconds:
-                break
+            if completion_locator is not None:
+                # The completion attribute can appear before the nested markdown has
+                # finished rendering. Do not finish the stream until text was captured.
+                is_complete = await completion_locator.count() > previous_complete_count
+                if is_complete and last_text:
+                    break
+                if is_complete and timed_out:
+                    raise TimeoutError(
+                        "Provider marked the response complete but no response text was captured"
+                    )
+            else:
+                idle_for = time.monotonic() - last_change
+                if last_text and idle_for >= settings.response_idle_seconds:
+                    break
+
             if timed_out:
                 raise TimeoutError("Timed out waiting for provider response to finish")
 
@@ -552,8 +572,12 @@ class BrowserEngine:
             return 0
 
     async def _latest_response_text(self, page: Page, config: ProviderConfig) -> str:
-        selector = config.response_text_selector or config.response_selector
-        locator = page.locator(selector).last
+        response = page.locator(config.response_selector).last
+        locator = (
+            response.locator(config.response_text_selector).last
+            if config.response_text_selector
+            else response
+        )
         try:
             return (await locator.inner_text(timeout=1_000)).strip()
         except Error:

@@ -38,6 +38,7 @@ class ProviderStore:
             send_button_selector=request.send_button_selector,
             response_selector=request.response_selector,
             response_text_selector=request.response_text_selector,
+            response_complete_selector=request.response_complete_selector,
             stream_url_pattern=request.stream_url_pattern,
         )
         path = self._path_for(provider.name)
