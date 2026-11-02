@@ -210,6 +210,7 @@ class ProviderHandle:
     lock: asyncio.Lock
     status: ProviderStatus = ProviderStatus.disconnected
     error: str | None = None
+    conversation_id: str | None = None
 
 
 class BrowserEngine:
@@ -367,6 +368,7 @@ class BrowserEngine:
                     context=base_handle.context,
                     page=page,
                     lock=asyncio.Lock(),
+                    conversation_id=conversation_id,
                 )
                 self._conversation_handles[key] = handle
                 return handle, True
@@ -546,6 +548,10 @@ class BrowserEngine:
     async def _dom_stream(self, handle: ProviderHandle, prompt: str) -> AsyncIterator[str]:
         page = handle.page
         if page.is_closed():
+            if handle.conversation_id is not None:
+                raise RuntimeError(
+                    "Provider conversation tab was closed; retry to rebuild from the client transcript"
+                )
             handle = await self._recreate_handle(handle.config.name, handle)
             page = handle.page
 
