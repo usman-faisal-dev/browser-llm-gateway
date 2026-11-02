@@ -483,6 +483,14 @@ class BrowserEngine:
             page = handle.page
 
         previous_count = await self._response_count(page, handle.config)
+        completion_locator = (
+            page.locator(handle.config.response_complete_selector)
+            if handle.config.response_complete_selector
+            else None
+        )
+        previous_complete_count = (
+            await completion_locator.count() if completion_locator is not None else 0
+        )
         await self._fill_prompt(page, handle.config, prompt)
         await self._send_prompt(page, handle.config)
 
@@ -510,10 +518,17 @@ class BrowserEngine:
                 last_text = text
                 last_change = time.monotonic()
 
-            idle_for = time.monotonic() - last_change
             timed_out = time.monotonic() - started_at > settings.response_timeout_seconds
-            if last_text and idle_for >= settings.response_idle_seconds:
-                break
+            if completion_locator is not None:
+                # Provider-specific completion markers are more reliable than guessing
+                # that generation has stopped because the DOM was briefly idle.
+                if await completion_locator.count() > previous_complete_count:
+                    break
+            else:
+                idle_for = time.monotonic() - last_change
+                if last_text and idle_for >= settings.response_idle_seconds:
+                    break
+
             if timed_out:
                 raise TimeoutError("Timed out waiting for provider response to finish")
 
