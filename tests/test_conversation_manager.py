@@ -51,6 +51,27 @@ class ConversationManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(plan.new_chat)
         await manager.finish(plan)
 
+    async def test_missing_provider_page_forces_full_history_rebuild(self) -> None:
+        manager = ConversationManager()
+        first = await manager.begin(
+            "chatgpt", "task-1", [ChatMessage(role="user", content="first")]
+        )
+        await manager.finish(first)
+
+        recovered = await manager.begin(
+            "chatgpt",
+            "task-1",
+            [
+                ChatMessage(role="user", content="first"),
+                ChatMessage(role="assistant", content="answer"),
+                ChatMessage(role="user", content="second"),
+            ],
+            force_rebuild=True,
+        )
+        self.assertTrue(recovered.new_chat)
+        self.assertEqual(recovered.start_index, 1)
+        await manager.finish(recovered)
+
     async def test_failed_request_forces_rebuild(self) -> None:
         manager = ConversationManager()
         plan = await manager.begin(
