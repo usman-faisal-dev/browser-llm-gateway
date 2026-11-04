@@ -209,6 +209,18 @@ async def list_models() -> dict[str, Any]:
     }
 
 
+def _effective_conversation_id(
+    conversation_id: str | None,
+    tools: list[dict[str, Any]],
+) -> str | None:
+    """Choose explicit isolation, legacy provider-level persistence, or stateless mode."""
+    if conversation_id is not None:
+        return conversation_id
+    if tools:
+        return DEFAULT_PROVIDER_CONVERSATION_ID
+    return None
+
+
 @app.post("/v1/chat/completions")
 async def chat_completions(
     request: ChatCompletionRequest,
@@ -236,13 +248,7 @@ async def chat_completions(
     plan: ConversationPlan | None = None
     # Preserve the original provider-level persistent chat for tool-enabled clients
     # that do not send an explicit conversation ID. Explicit IDs remain isolated.
-    effective_conversation_id = (
-        conversation_id
-        if conversation_id is not None
-        else DEFAULT_PROVIDER_CONVERSATION_ID
-        if tools
-        else None
-    )
+    effective_conversation_id = _effective_conversation_id(conversation_id, tools)
     if effective_conversation_id is not None:
         try:
             plan = await conversation_manager.begin(
