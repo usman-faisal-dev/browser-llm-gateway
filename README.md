@@ -52,8 +52,8 @@ This is browser automation rather than a direct provider API integration. The ga
 - Non-streaming JSON responses and Server-Sent Events (SSE) streaming.
 - Built-in provider configurations for ChatGPT, Gemini, Claude, and DeepSeek.
 - DOM-based response extraction, with optional network-assisted provider mode.
-- Optional isolated, persistent browser conversations using `X-Bridge-Conversation-ID`.
-- Stateless fresh-chat behavior when that header is omitted.
+- Persistent provider-level browser conversations for tool-enabled clients, even when they do not send a conversation ID.
+- Optional isolated conversations using `X-Bridge-Conversation-ID`; requests without tools and without this header remain stateless.
 - Tool schema serialization and best-effort extraction of tool calls from model output.
 - Local management dashboard for providers, browser login sessions, and browser fingerprint settings.
 - Bearer-token authentication for API and management endpoints.
@@ -248,9 +248,13 @@ Unknown or disabled providers return HTTP `404`. A malformed conversation ID ret
 
 ## Persistent conversations
 
-By default, every request without a conversation ID starts a fresh provider chat. This is the stateless mode and is useful when the client sends the complete conversation history on every request but does not want the gateway to retain a provider-side chat.
+Tool-enabled requests without `X-Bridge-Conversation-ID` reuse one default persistent conversation per provider. This restores the original provider-level behavior for clients such as agentic coding tools that send function tools but do not provide a conversation identifier. The gateway tracks the transcript and sends only the new portion when the supplied history extends the previous successful request.
 
-To keep a provider chat open across requests, send the optional header:
+Because this default is shared by all clients using the same provider, only one request can run in it at a time; overlapping requests receive HTTP `409`. Clients that need independent or concurrent conversations should send their own unique `X-Bridge-Conversation-ID`.
+
+Requests without tools and without a conversation ID remain stateless and start a fresh provider chat for each request. Explicit conversation IDs enable isolated persistent conversations whether or not tools are supplied.
+
+To keep a specific provider chat isolated across requests, send the optional header:
 
 ```http
 X-Bridge-Conversation-ID: unique-client-conversation-id
@@ -299,8 +303,6 @@ Conversation IDs:
 - Are not authentication tokens or secrets.
 
 The conversation manager and conversation pages are in memory. Restarting the gateway closes browser pages and clears its conversation checkpoints. To recover, the client must send the full transcript again with the same ID; the gateway will rebuild the provider conversation. Concurrent requests using the same provider and conversation ID are rejected with HTTP `409`; use separate IDs for independent concurrent tasks.
-
-**Client integration note:** the gateway supports this header, but Cline's generic OpenAI-compatible provider does not currently forward its internal task ID automatically. The Cline integration to map its task ID to `X-Bridge-Conversation-ID` is planned work, not part of the current gateway release.
 
 ## Tool calling
 
@@ -518,7 +520,6 @@ The automated tests cover core API/security behavior, URL validation, conversati
 
 The following are not yet complete:
 
-- Automatically forward Cline's task/session ID as `X-Bridge-Conversation-ID` for its generic OpenAI-compatible provider.
 - More robust tool-call parsing and JSON Schema validation.
 - Broader OpenAI API compatibility and more accurate token usage reporting.
 - Dedicated API integration and concurrency test coverage.
@@ -526,4 +527,4 @@ The following are not yet complete:
 - Conversation expiration and resource cleanup policies for long-running processes.
 - Direct provider network streaming and additional provider-specific adapters.
 
-The gateway currently keeps conversation checkpoints in process memory. Restart recovery relies on the client resending its transcript; durable conversation storage and automatic Cline session-header integration are future work.
+The gateway currently keeps conversation checkpoints in process memory. Restart recovery relies on the client resending its transcript; durable conversation storage and conversation cleanup policies are future work.
