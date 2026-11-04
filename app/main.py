@@ -41,7 +41,7 @@ engine = BrowserEngine(store)
 conversation_manager = ConversationManager()
 # This internal key cannot be supplied through the public header: control characters
 # are rejected by the X-Bridge-Conversation-ID validator.
-DEFAULT_PROVIDER_CONVERSATION_ID = "\\x00browser-llm-gateway-default"
+DEFAULT_PROVIDER_CONVERSATION_ID = "\x00browser-llm-gateway-default"
 DASHBOARD_PATH = BASE_DIR / "app" / "dashboard.html"
 NOVNC_PATH = BASE_DIR / "novnc"
 VNC_SETUP_PATH = BASE_DIR / "app" / "vnc_setup.sh"
