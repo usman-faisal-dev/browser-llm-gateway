@@ -14,6 +14,8 @@ class DefaultConversationRoutingTests(unittest.IsolatedAsyncioTestCase):
             _effective_conversation_id(None, tools),
             DEFAULT_PROVIDER_CONVERSATION_ID,
         )
+        # The reserved internal key cannot pass public header validation.
+        self.assertTrue(any(ord(char) < 33 for char in DEFAULT_PROVIDER_CONVERSATION_ID))
 
     async def test_explicit_id_is_preserved_even_without_tools(self) -> None:
         self.assertEqual(_effective_conversation_id("client-session-1", []), "client-session-1")
