@@ -39,6 +39,9 @@ from app.settings import (
 store = ProviderStore()
 engine = BrowserEngine(store)
 conversation_manager = ConversationManager()
+# This internal key cannot be supplied through the public header: control characters
+# are rejected by the X-Bridge-Conversation-ID validator.
+DEFAULT_PROVIDER_CONVERSATION_ID = "\x00browser-llm-gateway-default"
 DASHBOARD_PATH = BASE_DIR / "app" / "dashboard.html"
 NOVNC_PATH = BASE_DIR / "novnc"
 VNC_SETUP_PATH = BASE_DIR / "app" / "vnc_setup.sh"
@@ -206,6 +209,18 @@ async def list_models() -> dict[str, Any]:
     }
 
 
+def _effective_conversation_id(
+    conversation_id: str | None,
+    tools: list[dict[str, Any]],
+) -> str | None:
+    """Choose explicit isolation, legacy provider-level persistence, or stateless mode."""
+    if conversation_id is not None:
+        return conversation_id
+    if tools:
+        return DEFAULT_PROVIDER_CONVERSATION_ID
+    return None
+
+
 @app.post("/v1/chat/completions")
 async def chat_completions(
     request: ChatCompletionRequest,
@@ -231,13 +246,18 @@ async def chat_completions(
 
     tools = request.tools or []
     plan: ConversationPlan | None = None
-    if conversation_id is not None:
+    # Preserve the original provider-level persistent chat for tool-enabled clients
+    # that do not send an explicit conversation ID. Explicit IDs remain isolated.
+    effective_conversation_id = _effective_conversation_id(conversation_id, tools)
+    if effective_conversation_id is not None:
         try:
             plan = await conversation_manager.begin(
                 model,
-                conversation_id,
+                effective_conversation_id,
                 request.messages,
-                force_rebuild=not engine.has_conversation_page(model, conversation_id),
+                force_rebuild=not engine.has_conversation_page(
+                    model, effective_conversation_id
+                ),
             )
         except ConversationBusyError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -252,9 +272,8 @@ async def chat_completions(
         )
         prompt = _messages_to_prompt(delta_messages, tools)
         new_chat = plan.new_chat
-    elif tools:
-        prompt, new_chat, _ = _plan_prompt(model, request.messages, tools)
     else:
+        # Keep the existing stateless behavior for requests without tools or an ID.
         prompt = _messages_to_prompt(request.messages, tools)
         new_chat = True
 

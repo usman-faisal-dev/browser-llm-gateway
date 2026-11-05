@@ -635,23 +635,51 @@ class BrowserEngine:
 
     async def _fill_prompt(self, page: Page, config: ProviderConfig, prompt: str) -> None:
         locator = page.locator(config.input_selector).last
+        started = time.perf_counter()
+        print(f"[bridge] prompt fill started: {len(prompt)} chars", flush=True)
+
         await locator.wait_for(state="visible", timeout=30_000)
         try:
             await locator.fill(prompt)
-        except Error:
+            print(
+                f"[bridge] locator.fill succeeded in {time.perf_counter() - started:.2f}s",
+                flush=True,
+            )
+        except Error as exc:
+            print(
+                f"[bridge] locator.fill failed after {time.perf_counter() - started:.2f}s: {exc}",
+                flush=True,
+            )
+            fallback_started = time.perf_counter()
             await locator.click()
             await page.keyboard.press("Control+A")
             await page.keyboard.type(prompt)
+            print(
+                f"[bridge] keyboard.type finished in {time.perf_counter() - fallback_started:.2f}s",
+                flush=True,
+            )
 
     async def _send_prompt(self, page: Page, config: ProviderConfig) -> None:
+        started = time.perf_counter()
+        print("[bridge] send started", flush=True)
+
         if config.send_button_selector:
             button = page.locator(config.send_button_selector).last
             try:
                 await button.click(timeout=5_000)
+                print(
+                    f"[bridge] send button clicked in {time.perf_counter() - started:.2f}s",
+                    flush=True,
+                )
                 return
-            except Error:
-                pass
+            except Error as exc:
+                print(f"[bridge] send button failed: {exc}", flush=True)
+
         await page.keyboard.press("Enter")
+        print(
+            f"[bridge] Enter sent in {time.perf_counter() - started:.2f}s",
+            flush=True,
+        )
 
     async def _response_count(self, page: Page, config: ProviderConfig) -> int:
         try:
