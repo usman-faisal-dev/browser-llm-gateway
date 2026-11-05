@@ -634,23 +634,45 @@ class BrowserEngine:
             yield chunk
 
     async def _fill_prompt(self, page: Page, config: ProviderConfig, prompt: str) -> None:
-        locator = page.locator(config.input_selector).last
-        await locator.wait_for(state="visible", timeout=30_000)
-        try:
-            await locator.fill(prompt)
-        except Error:
-            await locator.click()
-            await page.keyboard.press("Control+A")
-            await page.keyboard.type(prompt)
+        candidates = page.locator(config.input_selector)
+        last_error: Error | None = None
+
+        # Provider pages may keep hidden desktop/mobile composers in the DOM.
+        # Select the last composer that is actually usable, not simply the last match.
+        for index in range(await candidates.count() - 1, -1, -1):
+            candidate = candidates.nth(index)
+            try:
+                if not await candidate.is_visible():
+                    continue
+                if not await candidate.is_enabled() or not await candidate.is_editable():
+                    continue
+                await candidate.fill(prompt, timeout=10_000)
+                return
+            except Error as exc:
+                last_error = exc
+
+        if last_error is not None:
+            raise RuntimeError(
+                "Could not fill a visible, enabled, editable provider composer; "
+                "refusing slow character-by-character typing fallback"
+            ) from last_error
+        raise RuntimeError(
+            "No visible, enabled, editable provider composer matched "
+            f"the configured selector: {config.input_selector}"
+        )
 
     async def _send_prompt(self, page: Page, config: ProviderConfig) -> None:
         if config.send_button_selector:
-            button = page.locator(config.send_button_selector).last
-            try:
-                await button.click(timeout=5_000)
-                return
-            except Error:
-                pass
+            buttons = page.locator(config.send_button_selector)
+            for index in range(await buttons.count() - 1, -1, -1):
+                button = buttons.nth(index)
+                try:
+                    if not await button.is_visible() or not await button.is_enabled():
+                        continue
+                    await button.click(timeout=5_000)
+                    return
+                except Error:
+                    continue
         await page.keyboard.press("Enter")
 
     async def _response_count(self, page: Page, config: ProviderConfig) -> int:
