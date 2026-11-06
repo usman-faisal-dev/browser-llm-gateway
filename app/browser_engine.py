@@ -640,6 +640,27 @@ class BrowserEngine:
 
         await locator.wait_for(state="visible", timeout=30_000)
         try:
+            matches = page.locator(config.input_selector)
+            count = await matches.count()
+
+            print(f"[bridge] composer matches: {count}", flush=True)
+
+            for i in range(count):
+                item = matches.nth(i)
+                try:
+                    print(
+                        f"[bridge] composer[{i}]: "
+                        f"tag={await item.evaluate('(e) => e.tagName')} "
+                        f"id={await item.get_attribute('id')} "
+                        f"visible={await item.is_visible()} "
+                        f"enabled={await item.is_enabled()} "
+                        f"readonly={await item.get_attribute('readonly')} "
+                        f"disabled={await item.get_attribute('disabled')}",
+                        flush=True,
+                    )
+                except Exception as exc:
+                    print(f"[bridge] composer[{i}] inspection failed: {exc}", flush=True)
+
             await locator.fill(prompt)
             print(
                 f"[bridge] locator.fill succeeded in {time.perf_counter() - started:.2f}s",
@@ -650,6 +671,10 @@ class BrowserEngine:
                 f"[bridge] locator.fill failed after {time.perf_counter() - started:.2f}s: {exc}",
                 flush=True,
             )
+            raise RuntimeError(
+                f"Composer fill failed; refusing keyboard fallback: {exc}"
+            ) from exc
+            """
             fallback_started = time.perf_counter()
             await locator.click()
             await page.keyboard.press("Control+A")
@@ -657,8 +682,7 @@ class BrowserEngine:
             print(
                 f"[bridge] keyboard.type finished in {time.perf_counter() - fallback_started:.2f}s",
                 flush=True,
-            )
-
+            )"""
     async def _send_prompt(self, page: Page, config: ProviderConfig) -> None:
         started = time.perf_counter()
         print("[bridge] send started", flush=True)
